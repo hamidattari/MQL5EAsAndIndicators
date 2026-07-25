@@ -1,0 +1,22 @@
+<Solution>
+  <Folder Name="/Expert/">
+    <File Path="Expert/ButtonTraderPro.mq5" />
+    <File Path="Expert/Copier.mq5" />
+    <File Path="Expert/MoneyManagement.mq5" />
+    <File Path="Expert/PinBarTrendEA.mq5" />
+    <File Path="Expert/QuasimodoRTM_EA.mq5" />
+    <File Path="Expert/RiskFree.mq5" />
+    <File Path="Expert/RiskFreeManager.mq5" />
+  </Folder>
+  <Folder Name="/Indicator/">
+    <File Path="Indicator/BaseCandleDetector.mq5" />
+    <File Path="Indicator/BOS_Detector.mq5" />
+    <File Path="Indicator/BoxExtender.mq5" />
+    <File Path="Indicator/DailyVerticalLine.mq5" />
+    <File Path="Indicator/ExpectedLossAndProfit.mq5" />
+    <File Path="Indicator/LossAndProfit.mq5" />
+    <File Path="Indicator/PinBarTrendSignals.mq5" />
+    <File Path="Indicator/QuasimodoRTM.mq5" />
+    <File Path="Indicator/Spread.mq5" />
+  </Folder>
+</Solution>
