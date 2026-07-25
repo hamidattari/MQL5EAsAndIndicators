@@ -785,7 +785,13 @@ void NavigateChart(int daysToNavigate)
 //| After Reset, the next << Prev click navigates to the last day.   |
 //+------------------------------------------------------------------+
 void ResetNavigation()
-  {
+  {  
+   // Clear all manually moved prices
+   ClearManualPrices();
+
+   // Delete current chart lines for redrawing
+   DeleteObjects();
+   
    // Clear stored Prev/Next state -> navigation restarts from "today"
    g_currentNavigationTargetTime = 0;
 
@@ -1197,11 +1203,15 @@ void DrawDailyHorizontalLine(const string lineName,
      }
    else
      {
-      // Refresh anchors/levelPrice in case bars around the reference changed
-      ObjectSetInteger(0, lineName, OBJPROP_TIME,  0, startTime);
-      ObjectSetInteger(0, lineName, OBJPROP_TIME,  1, endTime);
-      ObjectSetDouble (0, lineName, OBJPROP_PRICE, 0, effectivePrice);
-      ObjectSetDouble (0, lineName, OBJPROP_PRICE, 1, effectivePrice);
+     // Added condition: if the line is being moved (selected), its price should not be reset by new ticks.
+     if(!ObjectGetInteger(0, lineName, OBJPROP_SELECTED))
+        {
+         // Refresh anchors/levelPrice in case bars around the reference changed
+         ObjectSetInteger(0, lineName, OBJPROP_TIME,  0, startTime);
+         ObjectSetInteger(0, lineName, OBJPROP_TIME,  1, endTime);
+         ObjectSetDouble (0, lineName, OBJPROP_PRICE, 0, effectivePrice);
+         ObjectSetDouble (0, lineName, OBJPROP_PRICE, 1, effectivePrice);
+        }
      }
 
    ObjectSetInteger(0, lineName, OBJPROP_COLOR,      lineColor);
