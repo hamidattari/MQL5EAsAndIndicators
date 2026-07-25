@@ -1,5 +1,5 @@
 ﻿//+------------------------------------------------------------------+
-//|                                              DailyRefHighLow.mq5 |
+//|                                            DailyVerticalLine.mq5 |
 //|                                     Copyright 2026, AI Assistant |
 //|                                                                  |
 //|  For every trading day visible on the chart:                     |

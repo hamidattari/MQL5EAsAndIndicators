@@ -12,9 +12,9 @@
     <File Path="Indicator/BaseCandleDetector.mq5" />
     <File Path="Indicator/BOS_Detector.mq5" />
     <File Path="Indicator/BoxExtender.mq5" />
-    <File Path="Indicator/DailyRefHighLow_Architecture.md" />
-    <File Path="Indicator/DailyRefHighLow_Detailed.md" />
     <File Path="Indicator/DailyVerticalLine.mq5" />
+    <File Path="Indicator/DailyVerticalLine_Architecture.md" />
+    <File Path="Indicator/DailyVerticalLine_Detailed.md" />
     <File Path="Indicator/ExpectedLossAndProfit.mq5" />
     <File Path="Indicator/LossAndProfit.mq5" />
     <File Path="Indicator/PinBarTrendSignals.mq5" />
