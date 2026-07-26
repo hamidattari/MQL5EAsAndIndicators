@@ -7,6 +7,7 @@
     <File Path="Expert/QuasimodoRTM_EA.mq5" />
     <File Path="Expert/RiskFree.mq5" />
     <File Path="Expert/RiskFreeManager.mq5" />
+    <File Path="Expert/SessionBreakoutEA.mq5" />
   </Folder>
   <Folder Name="/Indicator/">
     <File Path="Indicator/BaseCandleDetector.mq5" />
