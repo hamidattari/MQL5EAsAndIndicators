@@ -1,5 +1,5 @@
 ﻿//+------------------------------------------------------------------+
-//|                                      ButtonTraderPro_Panel.mq5   |
+//|                                            ButtonTraderPro.mq5   |
 //|                Professional Button-Based Trading EA (Panel UI)   |
 //|                                                                  |
 //|  Collapsible / expandable panel containing 4 trade buttons:      |
@@ -7,9 +7,10 @@
 //|  - Automatic position sizing based on % risk of balance          |
 //|  - Stop Loss from Low/High of candle 2 bars ago +/- buffer       |
 //|  - Panel has configurable X/Y offset and collapse/expand toggle  |
+//|  - Selectable execution mode: Instant or Next Candle open        |
 //+------------------------------------------------------------------+
 #property copyright "ButtonTraderPro"
-#property version   "2.40"
+#property version   "2.50"
 #property strict
 
 #include <Trade\Trade.mqh>
@@ -19,6 +20,13 @@
 CTrade         tradeManager;
 CSymbolInfo    symbolInformation;
 
+//--- Execution mode
+enum ENUM_EXECUTION_MODE
+{
+   EXEC_INSTANT     = 0,  // Instant Execution
+   EXEC_NEXT_CANDLE = 1   // Next Candle Execution
+};
+
 //============================ USER INPUTS ============================//
 input group "=== Risk Management ==="
 input double   InpRiskPercent             = 1.0;     // Risk per trade (% of account balance)
@@ -27,6 +35,9 @@ input group "=== Stop Loss / Take Profit ==="
 input int      InpStopLossBufferPoints    = 50;      // Extra points beyond the 2-bar candle
 input int      InpTakeProfitBufferPoints  = 50;      // Points subtracted from calculated TP
 
+input group "=== Execution Mode ==="
+input ENUM_EXECUTION_MODE InpExecutionMode = EXEC_INSTANT; // Default execution mode
+
 input group "=== Panel Position & Offset ==="
 input ENUM_BASE_CORNER InpPanelAnchorCorner = CORNER_LEFT_UPPER; // Anchor corner
 input int      InpPanelXOffset            = 12;      // Panel X offset from corner (pixels)
@@ -34,7 +45,7 @@ input int      InpPanelYOffset            = 112;     // Panel Y offset from corn
 input bool     InpStartPanelCollapsed     = false;   // Start with panel collapsed?
 
 input group "=== Panel Appearance ==="
-input int      InpPanelWidthPixels        = 150;     // Panel width  (pixels)
+input int      InpPanelWidthPixels        = 190;     // Panel width  (pixels)
 input int      InpButtonHeightPixels      = 34;      // Trade button height (pixels)
 input int      InpButtonGapPixels         = 6;       // Gap between buttons (pixels)
 input int      InpPanelInnerPadding       = 8;       // Inner padding (pixels)
@@ -54,13 +65,25 @@ input ulong    InpMaxSlippagePoints       = 30;       // Max slippage (points)
 #define PNL_TITLE   "BTP_Panel_Title"
 #define PNL_LABEL   "BTP_Panel_Label"
 #define PNL_TOGGLE  "BTP_Panel_Toggle"
+#define BTN_MODE    "BTP_ExecMode"
 #define BTN_BUY1    "BTP_Buy1"
 #define BTN_BUY2    "BTP_Buy2"
 #define BTN_SELL1   "BTP_Sell1"
 #define BTN_SELL2   "BTP_Sell2"
 
+//--- Pending trade request (for Next Candle Execution)
+struct PendingTradeRequest
+{
+   bool             isActive;
+   ENUM_ORDER_TYPE  direction;
+   double           rewardToRiskMultiple;
+};
+
 //--- Runtime state
-bool     g_isPanelCollapsed = false;
+bool                 g_isPanelCollapsed  = false;
+ENUM_EXECUTION_MODE  g_executionMode     = EXEC_INSTANT;
+PendingTradeRequest  g_pendingRequests[];
+datetime             g_lastKnownBarTime  = 0;
 
 //+------------------------------------------------------------------+
 //| Expert initialization                                            |
@@ -85,11 +108,15 @@ int OnInit()
    }
 
    g_isPanelCollapsed = InpStartPanelCollapsed;
+   g_executionMode    = InpExecutionMode;
+   ArrayResize(g_pendingRequests, 0);
+   g_lastKnownBarTime = iTime(_Symbol, PERIOD_CURRENT, 0);
    BuildPanel();
 
    Print("ButtonTraderPro (Panel) initialized on ", _Symbol,
          " | Risk=", InpRiskPercent, "% | SL_Buffer=", InpStopLossBufferPoints,
-         " | TP_Buffer=", InpTakeProfitBufferPoints);
+         " | TP_Buffer=", InpTakeProfitBufferPoints,
+         " | ExecMode=", ExecutionModeText());
 
    return(INIT_SUCCEEDED);
 }
@@ -98,6 +125,33 @@ void OnDeinit(const int deinitReason)
 {
    DeleteAllObjects();
    ChartRedraw();
+}
+
+//+------------------------------------------------------------------+
+//| Tick handler: executes pending requests on new candle open       |
+//+------------------------------------------------------------------+
+void OnTick()
+{
+   datetime currentBarTime = iTime(_Symbol, PERIOD_CURRENT, 0);
+   if(currentBarTime == g_lastKnownBarTime)
+      return;
+
+   g_lastKnownBarTime = currentBarTime;
+
+   int pendingCount = ArraySize(g_pendingRequests);
+   if(pendingCount == 0)
+      return;
+
+   for(int i = 0; i < pendingCount; i++)
+   {
+      if(!g_pendingRequests[i].isActive)
+         continue;
+      Print("Executing pending ", (g_pendingRequests[i].direction == ORDER_TYPE_BUY ? "BUY" : "SELL"),
+            " request at new candle open.");
+      ExecuteTrade(g_pendingRequests[i].direction, g_pendingRequests[i].rewardToRiskMultiple);
+   }
+
+   ArrayResize(g_pendingRequests, 0);
 }
 
 //+==================================================================+
@@ -168,13 +222,23 @@ void CreateButton(const string objectName, const int xPosition, const int yPosit
    ObjectSetInteger(0, objectName, OBJPROP_ZORDER,      5);
 }
 
+string ExecutionModeText()
+{
+   return (g_executionMode == EXEC_INSTANT) ? "MODE: INSTANT" : "MODE: NEXT CANDLE";
+}
+
+color ExecutionModeColor()
+{
+   return (g_executionMode == EXEC_INSTANT) ? C'70,90,140' : C'140,110,40';
+}
+
 void BuildPanel()
 {
    int panelBaseX = InpPanelXOffset;
    int panelBaseY = InpPanelYOffset;
 
-   // 4 rows: Buy1, Buy2, Sell1, Sell2
-   int panelExpandedHeight = InpTitleBarHeightPixels + InpPanelInnerPadding + (4 * InpButtonHeightPixels) + (3 * InpButtonGapPixels) + InpPanelInnerPadding;
+   // 5 rows: Mode, Buy1, Buy2, Sell1, Sell2
+   int panelExpandedHeight = InpTitleBarHeightPixels + InpPanelInnerPadding + (5 * InpButtonHeightPixels) + (4 * InpButtonGapPixels) + InpPanelInnerPadding;
    int currentPanelHeight = g_isPanelCollapsed ? InpTitleBarHeightPixels : panelExpandedHeight;
 
    CreateRect(PNL_BG, panelBaseX, panelBaseY, InpPanelWidthPixels, currentPanelHeight, InpPanelBackgroundColor, clrGray);
@@ -192,10 +256,11 @@ void BuildPanel()
    int firstRowY  = panelBaseY + InpTitleBarHeightPixels + InpPanelInnerPadding;
    int rowVerticalStep    = InpButtonHeightPixels + InpButtonGapPixels;
 
-   CreateButton(BTN_BUY1,  innerContentX, firstRowY + 0*rowVerticalStep, innerContentWidth, InpButtonHeightPixels, "BUY 1  (1:2)",  clrSeaGreen,    InpButtonFontSize);
-   CreateButton(BTN_BUY2,  innerContentX, firstRowY + 1*rowVerticalStep, innerContentWidth, InpButtonHeightPixels, "BUY 2  (1:4)",  clrForestGreen, InpButtonFontSize);
-   CreateButton(BTN_SELL1, innerContentX, firstRowY + 2*rowVerticalStep, innerContentWidth, InpButtonHeightPixels, "SELL 1 (1:2)",  clrFireBrick,   InpButtonFontSize);
-   CreateButton(BTN_SELL2, innerContentX, firstRowY + 3*rowVerticalStep, innerContentWidth, InpButtonHeightPixels, "SELL 2 (1:4)",  clrCrimson,     InpButtonFontSize);
+   CreateButton(BTN_MODE,  innerContentX, firstRowY + 0*rowVerticalStep, innerContentWidth, InpButtonHeightPixels, ExecutionModeText(), ExecutionModeColor(), InpButtonFontSize - 1);
+   CreateButton(BTN_BUY1,  innerContentX, firstRowY + 1*rowVerticalStep, innerContentWidth, InpButtonHeightPixels, "BUY 1  (1:2)",  clrSeaGreen,    InpButtonFontSize);
+   CreateButton(BTN_BUY2,  innerContentX, firstRowY + 2*rowVerticalStep, innerContentWidth, InpButtonHeightPixels, "BUY 2  (1:4)",  clrForestGreen, InpButtonFontSize);
+   CreateButton(BTN_SELL1, innerContentX, firstRowY + 3*rowVerticalStep, innerContentWidth, InpButtonHeightPixels, "SELL 1 (1:2)",  clrFireBrick,   InpButtonFontSize);
+   CreateButton(BTN_SELL2, innerContentX, firstRowY + 4*rowVerticalStep, innerContentWidth, InpButtonHeightPixels, "SELL 2 (1:4)",  clrCrimson,     InpButtonFontSize);
 
    SetButtonsVisibility(!g_isPanelCollapsed);
    ChartRedraw();
@@ -204,6 +269,7 @@ void BuildPanel()
 void SetButtonsVisibility(const bool isPanelVisible)
 {
    long timeframeVisibilityFlags = isPanelVisible ? OBJ_ALL_PERIODS : 0;
+   ObjectSetInteger(0, BTN_MODE,  OBJPROP_TIMEFRAMES, timeframeVisibilityFlags);
    ObjectSetInteger(0, BTN_BUY1,  OBJPROP_TIMEFRAMES, timeframeVisibilityFlags);
    ObjectSetInteger(0, BTN_BUY2,  OBJPROP_TIMEFRAMES, timeframeVisibilityFlags);
    ObjectSetInteger(0, BTN_SELL1, OBJPROP_TIMEFRAMES, timeframeVisibilityFlags);
@@ -217,12 +283,23 @@ void ToggleCollapse()
    BuildPanel();
 }
 
+void ToggleExecutionMode()
+{
+   g_executionMode = (g_executionMode == EXEC_INSTANT) ? EXEC_NEXT_CANDLE : EXEC_INSTANT;
+   ObjectSetString (0, BTN_MODE, OBJPROP_TEXT,    ExecutionModeText());
+   ObjectSetInteger(0, BTN_MODE, OBJPROP_BGCOLOR, ExecutionModeColor());
+   ObjectSetInteger(0, BTN_MODE, OBJPROP_STATE,   false);
+   Print("Execution mode changed -> ", ExecutionModeText());
+   ChartRedraw();
+}
+
 void DeleteAllObjects()
 {
    ObjectDelete(0, PNL_BG);
    ObjectDelete(0, PNL_TITLE);
    ObjectDelete(0, PNL_LABEL);
    ObjectDelete(0, PNL_TOGGLE);
+   ObjectDelete(0, BTN_MODE);
    ObjectDelete(0, BTN_BUY1);
    ObjectDelete(0, BTN_BUY2);
    ObjectDelete(0, BTN_SELL1);
@@ -246,24 +323,28 @@ void OnChartEvent(const int eventId, const long &longEventParam,
 
    if(g_isPanelCollapsed) return;
 
-   if(stringEventParam == BTN_BUY1)
+   if(stringEventParam == BTN_MODE)
    {
-      ExecuteTrade(ORDER_TYPE_BUY, 2.0);
+      ToggleExecutionMode();
+   }
+   else if(stringEventParam == BTN_BUY1)
+   {
+      HandleTradeRequest(ORDER_TYPE_BUY, 2.0);
       ResetButton(BTN_BUY1);
    }
    else if(stringEventParam == BTN_BUY2)
    {
-      ExecuteTrade(ORDER_TYPE_BUY, 4.0);
+      HandleTradeRequest(ORDER_TYPE_BUY, 4.0);
       ResetButton(BTN_BUY2);
    }
    else if(stringEventParam == BTN_SELL1)
    {
-      ExecuteTrade(ORDER_TYPE_SELL, 2.0);
+      HandleTradeRequest(ORDER_TYPE_SELL, 2.0);
       ResetButton(BTN_SELL1);
    }
    else if(stringEventParam == BTN_SELL2)
    {
-      ExecuteTrade(ORDER_TYPE_SELL, 4.0);
+      HandleTradeRequest(ORDER_TYPE_SELL, 4.0);
       ResetButton(BTN_SELL2);
    }
 }
@@ -272,6 +353,29 @@ void ResetButton(const string buttonObjectName)
 {
    ObjectSetInteger(0, buttonObjectName, OBJPROP_STATE, false);
    ChartRedraw();
+}
+
+//+------------------------------------------------------------------+
+//| Route trade request based on selected execution mode             |
+//+------------------------------------------------------------------+
+void HandleTradeRequest(const ENUM_ORDER_TYPE tradeDirection, const double rewardToRiskMultiple)
+{
+   if(g_executionMode == EXEC_INSTANT)
+   {
+      ExecuteTrade(tradeDirection, rewardToRiskMultiple);
+      return;
+   }
+
+   // Next Candle Execution: store the request for the next candle open
+   int newIndex = ArraySize(g_pendingRequests);
+   ArrayResize(g_pendingRequests, newIndex + 1);
+   g_pendingRequests[newIndex].isActive             = true;
+   g_pendingRequests[newIndex].direction            = tradeDirection;
+   g_pendingRequests[newIndex].rewardToRiskMultiple = rewardToRiskMultiple;
+
+   Print("Trade request stored (", (tradeDirection == ORDER_TYPE_BUY ? "BUY" : "SELL"),
+         " RR 1:", DoubleToString(rewardToRiskMultiple, 0),
+         "). It will be executed at the next candle open.");
 }
 
 //+==================================================================+
