@@ -1,5 +1,5 @@
 ﻿//+------------------------------------------------------------------+
-//|                                            DailyVerticalLine.mq5 |
+//|                                              DailyRefHighLow.mq5 |
 //|                                     Copyright 2026, AI Assistant |
 //|                                                                  |
 //|  For every trading day visible on the chart:                     |
@@ -144,9 +144,9 @@ input group           "=== Navigation Panel ==="
 input bool            InpShowNavPanel       = true;            // Show Navigation Panel
 input ENUM_BASE_CORNER InpPanelCorner       = CORNER_LEFT_UPPER; // Anchor corner
 input int             InpPanelXOffset       = 12;              // Panel X offset from corner (pixels)
-input int             InpPanelYOffset       = 320;             // Panel Y offset from corner (pixels)
+input int             InpPanelYOffset       = 350;             // Panel Y offset from corner (pixels)
 input bool            InpStartCollapsed     = false;           // Start with panel collapsed?
-input int             InpPanelWidth         = 150;             // Panel width  (pixels)
+input int             InpPanelWidth         = 190;             // Panel width  (pixels)
 input int             InpButtonHeight       = 34;              // Button height (pixels)
 input int             InpButtonGap          = 6;               // Gap between buttons (pixels)
 input int             InpPanelPadding       = 8;               // Inner padding (pixels)
