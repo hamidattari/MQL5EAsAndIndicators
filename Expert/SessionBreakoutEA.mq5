@@ -3,7 +3,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Hamid Attari"
 #property link      ""
-#property version   "1.03"
+#property version   "1.04" // Added Break-Even (Risk Free) logic
 
 #include <Trade\Trade.mqh>
 #include <Trade\PositionInfo.mqh>
@@ -31,9 +31,17 @@ input int      TokyoMin       = 0;      // Tokyo Open Minute
 // ============================================================================
 //  INPUTS — RISK MANAGEMENT
 // ============================================================================
-input group   "--- Risk Management ---";
+input group    "--- Risk Management ---";
 input double   RiskPct        = 1.0;    // Risk % of Equity per Trade
-input double   RiskReward     = 2.0;    // Risk:Reward Ratio (Reward part)
+input double   RiskReward     = 4.0;    // Main Risk:Reward Ratio (e.g., TP3 = 3.0)
+
+// ============================================================================
+//  INPUTS — BREAK EVEN (RISK FREE)
+// ============================================================================
+input group    "--- Break Even Settings ---";
+input bool     EnableBreakEven= true;   // Enable Break-Even logic?
+input double   BE_Trigger_R   = 2.0;    // Trigger Break-Even at this 'R' (e.g., TP2 = 2.0)
+input int      BE_Offset      = 10;     // Break-Even Offset from Entry (points, to cover spread/fees)
 
 // ============================================================================
 //  INPUTS — ORDER SETTINGS
@@ -125,6 +133,64 @@ void CancelOrder(ulong ticket)
    if (ticket > 0 && orderInfo.Select(ticket))
      {
       trade.OrderDelete(ticket);
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| Manage Break Even for Open Positions                             |
+//+------------------------------------------------------------------+
+void ManageBreakEven()
+  {
+   if (!EnableBreakEven) return;
+   
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+     {
+      ulong ticket = PositionGetTicket(i);
+      if(PositionSelectByTicket(ticket))
+        {
+         if(PositionGetInteger(POSITION_MAGIC) == MagicNumber && PositionGetString(POSITION_SYMBOL) == _Symbol)
+           {
+            double entryPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+            double currentSL  = PositionGetDouble(POSITION_SL);
+            double currentTP  = PositionGetDouble(POSITION_TP);
+            long   posType    = PositionGetInteger(POSITION_TYPE);
+            double point      = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+            int    digits     = (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS);
+            
+            if (posType == POSITION_TYPE_BUY)
+              {
+               double currentPrice = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+               // If SL has not been moved to Break-Even yet (SL is still below Entry)
+               if (currentSL > 0 && currentSL < entryPrice)
+                 {
+                  double initialRiskDist = entryPrice - currentSL;
+                  double triggerPrice = entryPrice + (initialRiskDist * BE_Trigger_R);
+                  
+                  if (currentPrice >= triggerPrice)
+                    {
+                     double newSL = NormalizeDouble(entryPrice + (BE_Offset * point), digits);
+                     trade.PositionModify(ticket, newSL, currentTP);
+                    }
+                 }
+              }
+            else if (posType == POSITION_TYPE_SELL)
+              {
+               double currentPrice = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+               // If SL has not been moved to Break-Even yet (SL is still above Entry)
+               if (currentSL > 0 && currentSL > entryPrice)
+                 {
+                  double initialRiskDist = currentSL - entryPrice;
+                  double triggerPrice = entryPrice - (initialRiskDist * BE_Trigger_R);
+                  
+                  if (currentPrice <= triggerPrice)
+                    {
+                     double newSL = NormalizeDouble(entryPrice - (BE_Offset * point), digits);
+                     trade.PositionModify(ticket, newSL, currentTP);
+                    }
+                 }
+              }
+           }
+        }
      }
   }
 
@@ -339,5 +405,8 @@ void OnTick()
            }
         }
      }
+     
+   // 6. CONTINUOUS RISK-FREE MONITORING
+   ManageBreakEven();
   }
 //+------------------------------------------------------------------+
