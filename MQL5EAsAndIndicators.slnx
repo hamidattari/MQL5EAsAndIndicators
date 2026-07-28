@@ -10,6 +10,7 @@
     <File Path="Expert/SessionBreakoutEA.mq5" />
   </Folder>
   <Folder Name="/Indicator/">
+    <File Path="DailyVerticalLine_SwingDetection.md" />
     <File Path="Indicator/BaseCandleDetector.mq5" />
     <File Path="Indicator/BOS_Detector.mq5" />
     <File Path="Indicator/BoxExtender.mq5" />
