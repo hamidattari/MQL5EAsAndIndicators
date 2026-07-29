@@ -66,6 +66,13 @@ input int                    InpS4_EndH          = 23;         // Trading End Ho
 input int                    InpS4_EndM          = 59;         // Trading End Minute
 input color                  InpS4_Color         = clrOrchid;  // Line Color
 
+input group "=== Reset Button UI Settings ==="
+input ENUM_BASE_CORNER   InpBtnCorner        = CORNER_LEFT_UPPER; // Anchor Corner
+input int                InpBtnX             = 20;                // X Distance (pixels)
+input int                InpBtnY             = 130;                // Y Distance (pixels)
+input int                InpBtnWidth         = 120;               // Button Width (pixels)
+input int                InpBtnHeight        = 30;                // Button Height (pixels)
+
 input group "=== Trade Execution ==="
 input double                 InpSLBufferPoints   = 50.0;       // SL Buffer (points)
 input double                 InpTPBufferPoints   = 50.0;       // TP Buffer (points)
@@ -98,13 +105,15 @@ struct SessionData
    datetime          levelsDay;       // 00:00 timestamp of the day levels were calculated
    double            definedHigh;
    double            definedLow;
+   double            originalHigh;    // Store the original calculated high for reset
+   double            originalLow;     // Store the original calculated low for reset
    datetime          refBarTime;
    datetime          lineStartTime;
 
    // Session State Tracking
-   int               tradesToday;     // Count of opened trades in this session today
-   bool              trade1HitSL;     // True if Trade 1 closed via SL
-   bool              haltTrading;     // True if trading is stopped for remainder of session
+   int               tradesToday;
+   bool              trade1HitSL;
+   bool              haltTrading;
   };
 
 SessionData g_sessions[4];
@@ -115,6 +124,9 @@ SessionData g_sessions[4];
 int OnInit()
   {
    Print("DailyLevelsBreakout_EA.OnInit()");
+
+// Create Reset Button on Chart
+   CreateResetButton();
 
 // Initialize Session Array
    g_sessions[0].enable = InpS1_Enable;
@@ -318,6 +330,9 @@ void UpdateSessionLevels(int sIdx)
 // Commit Levels & Reset Session State
    g_sessions[sIdx].definedHigh   = newHigh;
    g_sessions[sIdx].definedLow    = newLow;
+   g_sessions[sIdx].originalHigh  = newHigh; // Save original for reset button
+   g_sessions[sIdx].originalLow   = newLow;  // Save original for reset button
+
    g_sessions[sIdx].levelsSet     = true;
    g_sessions[sIdx].levelsDay     = dayStart;
    g_sessions[sIdx].refBarTime    = iTime(_Symbol, _Period, refShift);
@@ -649,7 +664,7 @@ double CalcLots(const double slDistance)
 //+------------------------------------------------------------------+
 void DrawSessionLevelLines(int sIdx, const datetime dayStart)
   {
-   // Delete previous objects for this session before drawing new ones
+// Delete previous objects for this session before drawing new ones
    DeleteSessionObjects(sIdx);
 
    string dayTag = TimeToString(dayStart, TIME_DATE);
@@ -661,7 +676,7 @@ void DrawSessionLevelLines(int sIdx, const datetime dayStart)
 
    datetime lineEndTime = GetNextSessionRefTime(sIdx, dayStart);
 
-   // 1. Reference Vertical Line
+// 1. Reference Vertical Line
    ObjectCreate(0, refName, OBJ_VLINE, 0, g_sessions[sIdx].refBarTime, 0);
    ObjectSetInteger(0, refName, OBJPROP_COLOR, g_sessions[sIdx].lineColor);
    ObjectSetInteger(0, refName, OBJPROP_STYLE, InpReferenceLineStyle);
@@ -669,7 +684,7 @@ void DrawSessionLevelLines(int sIdx, const datetime dayStart)
    ObjectSetInteger(0, refName, OBJPROP_BACK, true);
    ObjectSetInteger(0, refName, OBJPROP_SELECTABLE, false);
 
-   // 2. High Line (Selectable & Movable)
+// 2. High Line (Selectable & Movable)
    ObjectCreate(0, highName, OBJ_TREND, 0, g_sessions[sIdx].lineStartTime, g_sessions[sIdx].definedHigh, lineEndTime, g_sessions[sIdx].definedHigh);
    ObjectSetInteger(0, highName, OBJPROP_COLOR, g_sessions[sIdx].lineColor);
    ObjectSetInteger(0, highName, OBJPROP_WIDTH, 2);
@@ -678,7 +693,7 @@ void DrawSessionLevelLines(int sIdx, const datetime dayStart)
    ObjectSetInteger(0, highName, OBJPROP_SELECTABLE, true);  // Enable selection
    ObjectSetInteger(0, highName, OBJPROP_SELECTED, false);
 
-   // 3. Low Line (Selectable & Movable)
+// 3. Low Line (Selectable & Movable)
    ObjectCreate(0, lowName, OBJ_TREND, 0, g_sessions[sIdx].lineStartTime, g_sessions[sIdx].definedLow, lineEndTime, g_sessions[sIdx].definedLow);
    ObjectSetInteger(0, lowName, OBJPROP_COLOR, g_sessions[sIdx].lineColor);
    ObjectSetInteger(0, lowName, OBJPROP_WIDTH, 2);
@@ -710,18 +725,29 @@ void OnChartEvent(const int id,
                   const double &dparam,
                   const string &sparam)
   {
-   // Handle object drag or change events
+// 1. Handle Object Dragging (Manual High/Low Adjustments)
    if(id == CHARTEVENT_OBJECT_DRAG || id == CHARTEVENT_OBJECT_CHANGE)
      {
-      // Check if the modified object belongs to this EA
-      if(StringFind(sparam, OBJ_PREFIX) == 0)
+      if(StringFind(sparam, OBJ_PREFIX) == 0 && sparam != BTN_RESET_NAME)
         {
          UpdateLevelsFromChartLines(sparam);
         }
      }
+
+// 2. Handle Reset Button Click
+   if(id == CHARTEVENT_OBJECT_CLICK)
+     {
+      if(sparam == BTN_RESET_NAME)
+        {
+         ResetLevelsToOriginal();
+
+         // Release the button state (pop it back up)
+         ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_STATE, false);
+        }
+     }
   }
-  //+------------------------------------------------------------------+
-  //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
 //| Update Session Levels when lines are manually moved on chart     |
 //+------------------------------------------------------------------+
 void UpdateLevelsFromChartLines(const string objectName)
@@ -729,7 +755,7 @@ void UpdateLevelsFromChartLines(const string objectName)
    for(int sIdx = 0; sIdx < 4; sIdx++)
      {
       string sessionTag = OBJ_PREFIX + "S" + IntegerToString(sIdx + 1) + "_";
-      
+
       // Match the dragged line with its corresponding session
       if(StringFind(objectName, sessionTag) == 0)
         {
@@ -749,12 +775,67 @@ void UpdateLevelsFromChartLines(const string objectName)
             g_sessions[sIdx].definedHigh = newPrice;
             PrintFormat("[User Action] Session %d High manually adjusted to %.5f", sIdx + 1, newPrice);
            }
-         else if(StringFind(objectName, "_Low_") > 0)
-           {
-            g_sessions[sIdx].definedLow = newPrice;
-            PrintFormat("[User Action] Session %d Low manually adjusted to %.5f", sIdx + 1, newPrice);
-           }
+         else
+            if(StringFind(objectName, "_Low_") > 0)
+              {
+               g_sessions[sIdx].definedLow = newPrice;
+               PrintFormat("[User Action] Session %d Low manually adjusted to %.5f", sIdx + 1, newPrice);
+              }
          break;
         }
      }
   }
+
+const string BTN_RESET_NAME = OBJ_PREFIX + "ResetBtn";
+
+//+------------------------------------------------------------------+
+//| Create/Update UI Button with custom position inputs              |
+//+------------------------------------------------------------------+
+void CreateResetButton()
+  {
+   if(ObjectFind(0, BTN_RESET_NAME) < 0)
+     {
+      ObjectCreate(0, BTN_RESET_NAME, OBJ_BUTTON, 0, 0, 0);
+     }
+
+   // Set user-defined coordinates & size
+   ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_CORNER, InpBtnCorner);
+   ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_XDISTANCE, InpBtnX);
+   ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_YDISTANCE, InpBtnY);
+   ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_XSIZE, InpBtnWidth);
+   ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_YSIZE, InpBtnHeight);
+
+   // Styling & Behavior
+   ObjectSetString(0, BTN_RESET_NAME, OBJPROP_TEXT, "Reset Levels");
+   ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_COLOR, clrWhite);
+   ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_BGCOLOR, clrSlateGray);
+   ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_BORDER_COLOR, clrBlack);
+   ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_STATE, false);
+   ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_HIDDEN, true);
+   ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_SELECTABLE, false);
+
+   ChartRedraw(0);
+  }
+
+//+------------------------------------------------------------------+
+//| Reset levels back to their calculated origin                     |
+//+------------------------------------------------------------------+
+void ResetLevelsToOriginal()
+  {
+   for(int i = 0; i < 4; i++)
+     {
+      // Check if session is active and original levels exist
+      if(g_sessions[i].levelsSet && g_sessions[i].originalHigh > 0 && g_sessions[i].originalLow > 0)
+        {
+         g_sessions[i].definedHigh = g_sessions[i].originalHigh;
+         g_sessions[i].definedLow  = g_sessions[i].originalLow;
+
+         // Redraw lines at their original coordinates
+         DrawSessionLevelLines(i, g_sessions[i].levelsDay);
+
+         PrintFormat("[Reset] Session %d levels reverted to original: High=%.5f, Low=%.5f", i + 1, g_sessions[i].originalHigh, g_sessions[i].originalLow);
+        }
+     }
+   ChartRedraw(0);
+  }
+//+------------------------------------------------------------------+
