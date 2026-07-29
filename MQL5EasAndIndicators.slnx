@@ -6,6 +6,7 @@
     <File Path="Expert/PositionSizerTool/PST_RiskCalculator.mqh" />
   </Folder>
   <Folder Name="/Expert/">
+    <File Path="DailyLevelsBreakout_EA_Architecture.md" />
     <File Path="Expert/ButtonTraderPro.mq5" />
     <File Path="Expert/Copier.mq5" />
     <File Path="Expert/DailyLevelsBreakout_EA.mq5" />

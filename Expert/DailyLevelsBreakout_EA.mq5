@@ -8,7 +8,7 @@
 //|  - Max 2 trades per session, halt after TP or after trade 2      |
 //+------------------------------------------------------------------+
 #property copyright "DailyLevelsBreakout"
-#property version   "2.00"
+#property version   "2.20"
 #property strict
 
 #include <Trade\Trade.mqh>
@@ -69,7 +69,7 @@ input color                  InpS4_Color         = clrOrchid;  // Line Color
 input group "=== Reset Button UI Settings ==="
 input ENUM_BASE_CORNER   InpBtnCorner        = CORNER_LEFT_UPPER; // Anchor Corner
 input int                InpBtnX             = 20;                // X Distance (pixels)
-input int                InpBtnY             = 130;                // Y Distance (pixels)
+input int                InpBtnY             = 130;               // Y Distance (pixels)
 input int                InpBtnWidth         = 120;               // Button Width (pixels)
 input int                InpBtnHeight        = 30;                // Button Height (pixels)
 
@@ -86,6 +86,7 @@ input group "=== Display ==="
 input bool                   InpDrawLevels          = true;           // Draw daily levels on chart
 input ENUM_LINE_STYLE        InpLineStyle           = STYLE_DOT;      // High/Low Line Style
 input ENUM_LINE_STYLE        InpReferenceLineStyle  = STYLE_DOT;      // Reference Time Line Style
+input int                    InpPriceLabelFontSize  = 9;              // Price Label Font Size (8-10)
 
 //=== Structs & Globals =============================================
 CTrade    g_trade;
@@ -108,7 +109,8 @@ struct SessionData
    double            originalHigh;    // Store the original calculated high for reset
    double            originalLow;     // Store the original calculated low for reset
    datetime          refBarTime;
-   datetime          lineStartTime;
+   datetime          lineStartTime;   // Left anchor timestamp
+   datetime          lineEndTime;     // Right anchor timestamp (NEW: prevents horizontal dragging)
 
    // Session State Tracking
    int               tradesToday;
@@ -657,10 +659,7 @@ double CalcLots(const double slDistance)
   }
 
 //+------------------------------------------------------------------+
-//| Chart Level Drawing                                              |
-//+------------------------------------------------------------------+
-//+------------------------------------------------------------------+
-//| Chart Level Drawing (Updated for interactive line dragging)      |
+//| Chart Level Drawing (Locked horizontal time anchors & slope)     |
 //+------------------------------------------------------------------+
 void DrawSessionLevelLines(int sIdx, const datetime dayStart)
   {
@@ -673,8 +672,11 @@ void DrawSessionLevelLines(int sIdx, const datetime dayStart)
    string highName = prefix + "High_" + dayTag;
    string lowName  = prefix + "Low_"  + dayTag;
    string refName  = prefix + "RefTime_" + dayTag;
+   string highLbl  = prefix + "HighLabel_" + dayTag;
+   string lowLbl   = prefix + "LowLabel_"  + dayTag;
 
-   datetime lineEndTime = GetNextSessionRefTime(sIdx, dayStart);
+// Calculate and cache the line's end time in the session structure
+   g_sessions[sIdx].lineEndTime = GetNextSessionRefTime(sIdx, dayStart);
 
 // 1. Reference Vertical Line
    ObjectCreate(0, refName, OBJ_VLINE, 0, g_sessions[sIdx].refBarTime, 0);
@@ -684,27 +686,44 @@ void DrawSessionLevelLines(int sIdx, const datetime dayStart)
    ObjectSetInteger(0, refName, OBJPROP_BACK, true);
    ObjectSetInteger(0, refName, OBJPROP_SELECTABLE, false);
 
-// 2. High Line (Selectable & Movable)
-   ObjectCreate(0, highName, OBJ_TREND, 0, g_sessions[sIdx].lineStartTime, g_sessions[sIdx].definedHigh, lineEndTime, g_sessions[sIdx].definedHigh);
+// 2. High Line (Selectable for vertical dragging only)
+   ObjectCreate(0, highName, OBJ_TREND, 0, g_sessions[sIdx].lineStartTime, g_sessions[sIdx].definedHigh, g_sessions[sIdx].lineEndTime, g_sessions[sIdx].definedHigh);
    ObjectSetInteger(0, highName, OBJPROP_COLOR, g_sessions[sIdx].lineColor);
-   ObjectSetInteger(0, highName, OBJPROP_WIDTH, 2);
+   ObjectSetInteger(0, highName, OBJPROP_WIDTH, 1);
    ObjectSetInteger(0, highName, OBJPROP_STYLE, InpLineStyle);
    ObjectSetInteger(0, highName, OBJPROP_RAY_RIGHT, false);
-   ObjectSetInteger(0, highName, OBJPROP_SELECTABLE, true);  // Enable selection
+   ObjectSetInteger(0, highName, OBJPROP_RAY_LEFT, false);
+   ObjectSetInteger(0, highName, OBJPROP_SELECTABLE, true);
    ObjectSetInteger(0, highName, OBJPROP_SELECTED, false);
 
-// 3. Low Line (Selectable & Movable)
-   ObjectCreate(0, lowName, OBJ_TREND, 0, g_sessions[sIdx].lineStartTime, g_sessions[sIdx].definedLow, lineEndTime, g_sessions[sIdx].definedLow);
+// 3. Low Line (Selectable for vertical dragging only)
+   ObjectCreate(0, lowName, OBJ_TREND, 0, g_sessions[sIdx].lineStartTime, g_sessions[sIdx].definedLow, g_sessions[sIdx].lineEndTime, g_sessions[sIdx].definedLow);
    ObjectSetInteger(0, lowName, OBJPROP_COLOR, g_sessions[sIdx].lineColor);
-   ObjectSetInteger(0, lowName, OBJPROP_WIDTH, 2);
+   ObjectSetInteger(0, lowName, OBJPROP_WIDTH, 1);
    ObjectSetInteger(0, lowName, OBJPROP_STYLE, InpLineStyle);
    ObjectSetInteger(0, lowName, OBJPROP_RAY_RIGHT, false);
-   ObjectSetInteger(0, lowName, OBJPROP_SELECTABLE, true);   // Enable selection
+   ObjectSetInteger(0, lowName, OBJPROP_RAY_LEFT, false);
+   ObjectSetInteger(0, lowName, OBJPROP_SELECTABLE, true);
    ObjectSetInteger(0, lowName, OBJPROP_SELECTED, false);
+
+// 4. High Price Label (Above High line, anchored left of Reference Bar)
+   ObjectCreate(0, highLbl, OBJ_TEXT, 0, g_sessions[sIdx].refBarTime, g_sessions[sIdx].definedHigh);
+   ObjectSetString(0,  highLbl, OBJPROP_TEXT, DoubleToString(g_sessions[sIdx].definedHigh, _Digits) + " ");
+   ObjectSetInteger(0, highLbl, OBJPROP_COLOR, g_sessions[sIdx].lineColor);
+   ObjectSetInteger(0, highLbl, OBJPROP_FONTSIZE, InpPriceLabelFontSize);
+   ObjectSetInteger(0, highLbl, OBJPROP_ANCHOR, ANCHOR_RIGHT_LOWER);
+   ObjectSetInteger(0, highLbl, OBJPROP_SELECTABLE, false);
+
+// 5. Low Price Label (Below Low line, anchored left of Reference Bar)
+   ObjectCreate(0, lowLbl, OBJ_TEXT, 0, g_sessions[sIdx].refBarTime, g_sessions[sIdx].definedLow);
+   ObjectSetString(0,  lowLbl, OBJPROP_TEXT, DoubleToString(g_sessions[sIdx].definedLow, _Digits) + " ");
+   ObjectSetInteger(0, lowLbl, OBJPROP_COLOR, g_sessions[sIdx].lineColor);
+   ObjectSetInteger(0, lowLbl, OBJPROP_FONTSIZE, InpPriceLabelFontSize);
+   ObjectSetInteger(0, lowLbl, OBJPROP_ANCHOR, ANCHOR_RIGHT_UPPER);
+   ObjectSetInteger(0, lowLbl, OBJPROP_SELECTABLE, false);
 
    ChartRedraw(0);
   }
-//+------------------------------------------------------------------+
 
 //+------------------------------------------------------------------+
 //| Delete objects for a specific session only                       |
@@ -748,7 +767,19 @@ void OnChartEvent(const int id,
   }
 //+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
-//| Update Session Levels when lines are manually moved on chart     |
+//| Helper: Dynamically updates Price Label position and text        |
+//+------------------------------------------------------------------+
+void UpdateSessionPriceLabel(const string labelName, const double newPrice)
+  {
+   if(ObjectFind(0, labelName) >= 0)
+     {
+      ObjectSetDouble(0, labelName, OBJPROP_PRICE, newPrice);
+      ObjectSetString(0, labelName, OBJPROP_TEXT, DoubleToString(newPrice, _Digits) + " ");
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| Update Session Levels & enforce strict horizontal/time locks     |
 //+------------------------------------------------------------------+
 void UpdateLevelsFromChartLines(const string objectName)
   {
@@ -759,32 +790,52 @@ void UpdateLevelsFromChartLines(const string objectName)
       // Match the dragged line with its corresponding session
       if(StringFind(objectName, sessionTag) == 0)
         {
-         // Get the newly dragged price value
+         // 1. Read price of whichever anchor point was moved (or anchor 0 by default)
          double newPrice = ObjectGetDouble(0, objectName, OBJPROP_PRICE, 0);
+         double altPrice = ObjectGetDouble(0, objectName, OBJPROP_PRICE, 1);
+
+         // If anchor 1 was dragged to a different price than anchor 0, use anchor 1's price
+         if(MathAbs(newPrice - altPrice) > _Point)
+           {
+            if(StringFind(objectName, "_High_") > 0 && MathAbs(altPrice - g_sessions[sIdx].definedHigh) > _Point)
+               newPrice = altPrice;
+            else if(StringFind(objectName, "_Low_") > 0 && MathAbs(altPrice - g_sessions[sIdx].definedLow) > _Point)
+               newPrice = altPrice;
+           }
+
          if(newPrice <= 0)
             return;
 
-         // Enforce perfect horizontal alignment for the trend line
+         // 2. ENFORCE HORIZONTAL LOCK: Keep both anchors at the exact same Y-axis price
          ObjectSetDouble(0, objectName, OBJPROP_PRICE, 0, newPrice);
          ObjectSetDouble(0, objectName, OBJPROP_PRICE, 1, newPrice);
-         ChartRedraw(0);
 
-         // Update internal session levels
+         // 3. ENFORCE TIME ANCHOR LOCK: Prevent dragging start/end points horizontally
+         ObjectSetInteger(0, objectName, OBJPROP_TIME, 0, g_sessions[sIdx].lineStartTime);
+         ObjectSetInteger(0, objectName, OBJPROP_TIME, 1, g_sessions[sIdx].lineEndTime);
+
+         // 4. Update internal session levels and their corresponding text label
+         string dayTag = TimeToString(g_sessions[sIdx].levelsDay, TIME_DATE);
          if(StringFind(objectName, "_High_") > 0)
            {
             g_sessions[sIdx].definedHigh = newPrice;
+            UpdateSessionPriceLabel(sessionTag + "HighLabel_" + dayTag, newPrice);
             PrintFormat("[User Action] Session %d High manually adjusted to %.5f", sIdx + 1, newPrice);
            }
          else
             if(StringFind(objectName, "_Low_") > 0)
               {
                g_sessions[sIdx].definedLow = newPrice;
+               UpdateSessionPriceLabel(sessionTag + "LowLabel_" + dayTag, newPrice);
                PrintFormat("[User Action] Session %d Low manually adjusted to %.5f", sIdx + 1, newPrice);
               }
+
+         ChartRedraw(0);
          break;
         }
      }
   }
+//+------------------------------------------------------------------+
 
 const string BTN_RESET_NAME = OBJ_PREFIX + "ResetBtn";
 
@@ -830,7 +881,7 @@ void ResetLevelsToOriginal()
          g_sessions[i].definedHigh = g_sessions[i].originalHigh;
          g_sessions[i].definedLow  = g_sessions[i].originalLow;
 
-         // Redraw lines at their original coordinates
+         // Redraw lines (and labels) at their original coordinates
          DrawSessionLevelLines(i, g_sessions[i].levelsDay);
 
          PrintFormat("[Reset] Session %d levels reverted to original: High=%.5f, Low=%.5f", i + 1, g_sessions[i].originalHigh, g_sessions[i].originalLow);
