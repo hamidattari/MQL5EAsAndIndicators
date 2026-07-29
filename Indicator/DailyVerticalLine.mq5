@@ -144,9 +144,9 @@ input group           "=== Navigation Panel ==="
 input bool            InpShowNavPanel       = true;            // Show Navigation Panel
 input ENUM_BASE_CORNER InpPanelCorner       = CORNER_LEFT_UPPER; // Anchor corner
 input int             InpPanelXOffset       = 12;              // Panel X offset from corner (pixels)
-input int             InpPanelYOffset       = 350;             // Panel Y offset from corner (pixels)
+input int             InpPanelYOffset       = 370;             // Panel Y offset from corner (pixels)
 input bool            InpStartCollapsed     = false;           // Start with panel collapsed?
-input int             InpPanelWidth         = 190;             // Panel width  (pixels)
+input int             InpPanelWidth         = 320;             // Panel width  (pixels)
 input int             InpButtonHeight       = 34;              // Button height (pixels)
 input int             InpButtonGap          = 6;               // Gap between buttons (pixels)
 input int             InpPanelPadding       = 8;               // Inner padding (pixels)
@@ -1033,19 +1033,19 @@ void ProcessDayLevels(datetime dayStartTime,
       if(lowestLowIndex < highestHighIndex)
         {
          //--- Confirmed Low first, then High found afterwards.
-         //    Count bearish candles AFTER that High (cumulative,
-         //    not necessarily consecutive) up to the candle before
-         //    the reference time.
+         //    Count bearish candles from the High candle ITSELF (included)
+         //    up to the candle before the reference time (cumulative,
+         //    not necessarily consecutive).
          int bearishCandleCount = 0;
-         for(int scanIndex = highestHighIndex + 1; scanIndex <= searchStartIndex; scanIndex++)
+         for(int scanIndex = highestHighIndex; scanIndex <= searchStartIndex; scanIndex++)   // starts AT the High candle
             if(close[scanIndex] < open[scanIndex])
                bearishCandleCount++;
 
          if(bearishCandleCount >= InpUpdateCandles)
            {
-            //--- Update the Low: lowest Low of the range after the High
+            //--- Update the Low: lowest Low of the range from the High candle onward
             double newLowestLowPrice = DBL_MAX; int newLowestLowIndex = -1;
-            for(int scanIndex = highestHighIndex + 1; scanIndex <= searchStartIndex; scanIndex++)
+            for(int scanIndex = highestHighIndex; scanIndex <= searchStartIndex; scanIndex++)
                if(low[scanIndex] < newLowestLowPrice) { newLowestLowPrice = low[scanIndex]; newLowestLowIndex = scanIndex; }
 
             if(newLowestLowIndex >= 0)
@@ -1061,19 +1061,18 @@ void ProcessDayLevels(datetime dayStartTime,
       else // highestHighIndex < lowestLowIndex
         {
          //--- Confirmed High first, then Low found afterwards.
-         //    Count bullish candles AFTER that Low (cumulative,
-         //    not necessarily consecutive) up to the candle before
-         //    the reference time.
+         //    Count bullish candles from the Low candle ITSELF (included)
+         //    up to the candle before the reference time.
          int bullishCandleCount = 0;
-         for(int scanIndex = lowestLowIndex + 1; scanIndex <= searchStartIndex; scanIndex++)
+         for(int scanIndex = lowestLowIndex; scanIndex <= searchStartIndex; scanIndex++)     // starts AT the Low candle
             if(close[scanIndex] > open[scanIndex])
                bullishCandleCount++;
 
          if(bullishCandleCount >= InpUpdateCandles)
            {
-            //--- Update the High: highest High of the range after the Low
+            //--- Update the High: highest High of the range from the Low candle onward
             double newHighestHighPrice = -DBL_MAX; int newHighestHighIndex = -1;
-            for(int scanIndex = lowestLowIndex + 1; scanIndex <= searchStartIndex; scanIndex++)
+            for(int scanIndex = lowestLowIndex; scanIndex <= searchStartIndex; scanIndex++)
                if(high[scanIndex] > newHighestHighPrice) { newHighestHighPrice = high[scanIndex]; newHighestHighIndex = scanIndex; }
 
             if(newHighestHighIndex >= 0)
