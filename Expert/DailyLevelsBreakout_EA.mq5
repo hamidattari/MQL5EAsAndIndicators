@@ -450,7 +450,14 @@ void ExecuteTrade(const ENUM_ORDER_TYPE type, const double rr)
       return;
      }
 
-   string comment = StringFormat("DLB T%d RR1:%.0f", g_tradesToday + 1, rr);
+   string comment = StringFormat(
+                       "DLB (%02d:%02d) T%d RR1:%.0f",
+                       InpRefHour,
+                       InpRefMinute,
+                       g_tradesToday + 1,
+                       rr
+                    );
+
    bool ok = (type == ORDER_TYPE_BUY)
              ? g_trade.Buy(lots, _Symbol, 0.0, sl, tp, comment)
              : g_trade.Sell(lots, _Symbol, 0.0, sl, tp, comment);
@@ -582,7 +589,7 @@ double CalcLots(const double slDistance)
 void RemoveLevelLines()
   {
    ObjectsDeleteAll(0, OBJ_PREFIX);
-   ChartRedraw();
+   ChartRedraw(0);
   }
 
 //+------------------------------------------------------------------+
@@ -618,5 +625,7 @@ void DrawLevelLines(const datetime dayStart)
    ObjectSetInteger(0, lowName, OBJPROP_WIDTH, 1);
    ObjectSetInteger(0, lowName, OBJPROP_STYLE, InpLineStyle);
    ObjectSetInteger(0, lowName, OBJPROP_RAY_RIGHT, false);
+
+   ChartRedraw(0);
   }
 //+------------------------------------------------------------------+
