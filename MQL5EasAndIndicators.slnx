@@ -1,7 +1,15 @@
 <Solution>
+  <Folder Name="/Expert/PositionSizerTool/">
+    <File Path="Expert/PositionSizerTool/PositionSizerTool.mq5" />
+    <File Path="Expert/PositionSizerTool/PST_ChartObjects.mqh" />
+    <File Path="Expert/PositionSizerTool/PST_PositionTool.mqh" />
+    <File Path="Expert/PositionSizerTool/PST_RiskCalculator.mqh" />
+  </Folder>
   <Folder Name="/Expert/">
     <File Path="Expert/ButtonTraderPro.mq5" />
     <File Path="Expert/Copier.mq5" />
+    <File Path="Expert/DailyLevelsBreakout_EA.mq5" />
+    <File Path="Expert/DailyLevelsBreakout_EA_Prompt.md" />
     <File Path="Expert/MoneyManagement.mq5" />
     <File Path="Expert/PinBarTrendEA.mq5" />
     <File Path="Expert/QuasimodoRTM_EA.mq5" />
@@ -16,6 +24,7 @@
     <File Path="Indicator/DailyVerticalLine.mq5" />
     <File Path="Indicator/DailyVerticalLine_Architecture.md" />
     <File Path="Indicator/DailyVerticalLine_Detailed.md" />
+    <File Path="Indicator/DailyVerticalLine_SwingDetection.md" />
     <File Path="Indicator/ExpectedLossAndProfit.mq5" />
     <File Path="Indicator/LossAndProfit.mq5" />
     <File Path="Indicator/PinBarTrendSignals.mq5" />
