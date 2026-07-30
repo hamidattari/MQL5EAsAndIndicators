@@ -366,9 +366,9 @@ void CheckEntrySignal(int sIdx)
    if(HasOpenPositionForSession(sIdx))
       return;
 
-// Breakout candle must have formed AFTER session reference candle
+// Breakout candle must have formed ON OR AFTER the session reference candle
    datetime c1time = iTime(_Symbol, _Period, 1);
-   if(c1time <= g_sessions[sIdx].refBarTime)
+   if(c1time < g_sessions[sIdx].refBarTime)
       return;
 
    double o1 = iOpen(_Symbol, _Period, 1);
@@ -413,6 +413,7 @@ void CheckEntrySignal(int sIdx)
    else
       ExecuteTrade(ORDER_TYPE_SELL, rr, sIdx);
   }
+//+------------------------------------------------------------------+
 
 //+------------------------------------------------------------------+
 //| Execute Market Order                                             |
