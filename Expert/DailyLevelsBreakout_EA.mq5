@@ -123,9 +123,16 @@ SessionData g_sessions[4];
 //+------------------------------------------------------------------+
 //| Initialization                                                   |
 //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| Initialization                                                   |
+//+------------------------------------------------------------------+
 int OnInit()
   {
    Print("DailyLevelsBreakout_EA.OnInit()");
+
+// --- FIX: Reset global variables memory on Initialization ---
+// This ensures levels force-recalculate when input parameters (like InpLookbackN) change
+   ZeroMemory(g_sessions);
 
 // Create Reset Button on Chart
    CreateResetButton();
@@ -184,10 +191,10 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
-   if(reason == REASON_REMOVE)
-     {
-      ObjectsDeleteAll(0, OBJ_PREFIX);
-     }
+// --- FIX: Removed 'if(reason == REASON_REMOVE)' ---
+// Always delete chart objects on Deinit (including REASON_PARAMETERS)
+// to prevent stuck drawings when modifying inputs
+   ObjectsDeleteAll(0, OBJ_PREFIX);
   }
 
 //+------------------------------------------------------------------+
@@ -800,8 +807,9 @@ void UpdateLevelsFromChartLines(const string objectName)
            {
             if(StringFind(objectName, "_High_") > 0 && MathAbs(altPrice - g_sessions[sIdx].definedHigh) > _Point)
                newPrice = altPrice;
-            else if(StringFind(objectName, "_Low_") > 0 && MathAbs(altPrice - g_sessions[sIdx].definedLow) > _Point)
-               newPrice = altPrice;
+            else
+               if(StringFind(objectName, "_Low_") > 0 && MathAbs(altPrice - g_sessions[sIdx].definedLow) > _Point)
+                  newPrice = altPrice;
            }
 
          if(newPrice <= 0)
@@ -850,14 +858,14 @@ void CreateResetButton()
       ObjectCreate(0, BTN_RESET_NAME, OBJ_BUTTON, 0, 0, 0);
      }
 
-   // Set user-defined coordinates & size
+// Set user-defined coordinates & size
    ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_CORNER, InpBtnCorner);
    ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_XDISTANCE, InpBtnX);
    ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_YDISTANCE, InpBtnY);
    ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_XSIZE, InpBtnWidth);
    ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_YSIZE, InpBtnHeight);
 
-   // Styling & Behavior
+// Styling & Behavior
    ObjectSetString(0, BTN_RESET_NAME, OBJPROP_TEXT, "Reset Levels");
    ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_COLOR, clrWhite);
    ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_BGCOLOR, clrSlateGray);
@@ -890,4 +898,5 @@ void ResetLevelsToOriginal()
      }
    ChartRedraw(0);
   }
+//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
