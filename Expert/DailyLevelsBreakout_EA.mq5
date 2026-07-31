@@ -16,23 +16,23 @@
 //--- Detection method enum
 enum ENUM_DETECTION_METHOD
 {
-	METHOD_1 = 1,   // Method 1: Base High/Low of lookback window
-	METHOD_2 = 2,   // Method 2: Base + confirmation-candle update
-	METHOD_3 = 3    // Method 3: Reference candle High/Low
+    METHOD_1 = 1,   // Method 1: Base High/Low of lookback window
+    METHOD_2 = 2,   // Method 2: Base + confirmation-candle update
+    METHOD_3 = 3    // Method 3: Reference candle High/Low
 };
 
 //--- Update mode for Method 2
 enum ENUM_UPDATE_MODE
 {
-	UPDATE_MAIN_HL = 0  // Update Main High and Low
+    UPDATE_MAIN_HL = 0  // Update Main High and Low
 };
 
 //--- Entry mode enum
 enum ENUM_ENTRY_MODE
 {
-	ENTRY_MODE_1 = 1,   // EntryMode = 1 (DMT)
-	ENTRY_MODE_2 = 2,   // EntryMode = 2 (Breakout Entry)
-	ENTRY_MODE_3 = 3    // EntryMode = 3 (Breakout Entry & Candle Close Confirmation)
+    ENTRY_MODE_1 = 1,   // EntryMode = 1 (DMT)
+    ENTRY_MODE_2 = 2,   // EntryMode = 2 (Breakout Entry)
+    ENTRY_MODE_3 = 3    // EntryMode = 3 (Breakout Entry & Candle Close Confirmation)
 };
 
 //=== Inputs =========================================================
@@ -84,8 +84,8 @@ input double                 InpRiskPercent = 0.2;        // Risk % of balance p
 input double                 InpFixedLot = 0.10;       // Fixed lot size
 input ulong                  InpMagic = 20260729;   // Base Magic Number (Sessions use Base + 0,1,2,3)
 input int                    InpSlippagePoints = 20;         // Max slippage (points)
-input int                    InpOpenTolerancePoints = 5.0; // Open price tolerance in points for EntryMode = 1 (DMT)
-input int                    InpBreakoutTolerancePoints = 5.0; // Breakout shadow tolerance in points for EntryMode = 1 (DMT)
+input int                    InpOpenTolerancePoints = 1; // Open price tolerance in points for EntryMode = 1 (DMT)
+input int                    InpBreakoutTolerancePoints = 1; // Breakout shadow tolerance in points for EntryMode = 1 (DMT)
 
 input group "=== Close Before Market Close ==="
 input bool                   EnableCloseBeforeMarketClose = true;  // Enable market-close protection
@@ -95,6 +95,7 @@ input bool                   InpMC_CloseOnlyEaTrades = true;  // Only touch this
 
 input group "=== Display ==="
 input bool                   InpDrawLevels = true;           // Draw daily levels on chart
+input bool                   InpExtendLinesToSessionEnd = false; // true = extend to session end time, false = stop at next session ref time
 input ENUM_LINE_STYLE        InpLineStyle = STYLE_DOT;      // High/Low Line Style
 input ENUM_LINE_STYLE        InpReferenceLineStyle = STYLE_DOT;      // Reference Time Line Style
 input int                    InpPriceLabelFontSize = 9;              // Price Label Font Size (8-10)
@@ -123,30 +124,30 @@ bool     g_mcNoSchedWarned = false;  // "no session data" warning printed once
 
 struct SessionData
 {
-	bool              enable;
-	int               refH, refM;
-	int               endH, endM;
-	color             lineColor;
+    bool              enable;
+    int               refH, refM;
+    int               endH, endM;
+    color             lineColor;
 
-	// Level Calculation Results
-	bool              levelsSet;
-	datetime          levelsDay;       // 00:00 timestamp of the day levels were calculated
-	double            definedHigh;
-	double            definedLow;
-	double            originalHigh;    // Store the original calculated high for reset
-	double            originalLow;     // Store the original calculated low for reset
-	datetime          refBarTime;
-	datetime          lineStartTime;   // Left anchor timestamp
-	datetime          lineEndTime;     // Right anchor timestamp (NEW: prevents horizontal dragging)
+    // Level Calculation Results
+    bool              levelsSet;
+    datetime          levelsDay;       // 00:00 timestamp of the day levels were calculated
+    double            definedHigh;
+    double            definedLow;
+    double            originalHigh;    // Store the original calculated high for reset
+    double            originalLow;     // Store the original calculated low for reset
+    datetime          refBarTime;
+    datetime          lineStartTime;   // Left anchor timestamp
+    datetime          lineEndTime;     // Right anchor timestamp (NEW: prevents horizontal dragging)
 
-	// Session State Tracking
-	int               tradesToday;
-	bool              trade1HitSL;
-	bool              haltTrading;
+    // Session State Tracking
+    int               tradesToday;
+    bool              trade1HitSL;
+    bool              haltTrading;
 
-	// Breakout Direction Tracking Locks
-	bool              buyTriggered;
-	bool              sellTriggered;
+    // Breakout Direction Tracking Locks
+    bool              buyTriggered;
+    bool              sellTriggered;
 };
 
 SessionData g_sessions[4];
@@ -156,97 +157,97 @@ SessionData g_sessions[4];
 //+------------------------------------------------------------------+
 int OnInit()
 {
-	Print("DailyLevelsBreakout_EA.OnInit()");
+    Print("DailyLevelsBreakout_EA.OnInit()");
 
-	g_trade.SetDeviationInPoints(InpSlippagePoints);
-	g_trade.SetTypeFillingBySymbol(_Symbol);
+    g_trade.SetDeviationInPoints(InpSlippagePoints);
+    g_trade.SetTypeFillingBySymbol(_Symbol);
 
-	// --- Market-Close Protection: validate inputs and arm watchdog timer ---
-	g_mcBlockTrading = false;
-	g_mcResumeTime = 0;
-	g_mcHandledClose = 0;
-	g_mcLoggedClose = 0;
-	g_mcLastLoggedMin = -1;
-	g_mcMinutes = MinutesBeforeMarketClose;
+    // --- Market-Close Protection: validate inputs and arm watchdog timer ---
+    g_mcBlockTrading = false;
+    g_mcResumeTime = 0;
+    g_mcHandledClose = 0;
+    g_mcLoggedClose = 0;
+    g_mcLastLoggedMin = -1;
+    g_mcMinutes = MinutesBeforeMarketClose;
 
-	if (EnableCloseBeforeMarketClose)
-	{
-		if (g_mcMinutes < 1)
-		{
-			Print("[MarketClose] MinutesBeforeMarketClose < 1 -> clamped to 1.");
-			g_mcMinutes = 1;
-		}
-		if (g_mcMinutes > 1440)
-		{
-			Print("[MarketClose] MinutesBeforeMarketClose > 1440 -> clamped to 1440.");
-			g_mcMinutes = 1440;
-		}
+    if (EnableCloseBeforeMarketClose)
+    {
+        if (g_mcMinutes < 1)
+        {
+            Print("[MarketClose] MinutesBeforeMarketClose < 1 -> clamped to 1.");
+            g_mcMinutes = 1;
+        }
+        if (g_mcMinutes > 1440)
+        {
+            Print("[MarketClose] MinutesBeforeMarketClose > 1440 -> clamped to 1440.");
+            g_mcMinutes = 1440;
+        }
 
-		datetime marketCloseTime = 0;
-		if (MarketCloseGetMarketCloseTime(MarketCloseServerNow(), marketCloseTime))
-			PrintFormat("[MarketClose] Enabled. Threshold=%d min. Current session closes at %s (server time).",
-				g_mcMinutes, TimeToString(marketCloseTime, TIME_DATE | TIME_MINUTES));
-		else
-			PrintFormat("[MarketClose] Enabled. Threshold=%d min. %s is outside a trading session right now.",
-				g_mcMinutes, _Symbol);
+        datetime marketCloseTime = 0;
+        if (MarketCloseGetMarketCloseTime(MarketCloseServerNow(), marketCloseTime))
+            PrintFormat("[MarketClose] Enabled. Threshold=%d min. Current session closes at %s (server time).",
+                g_mcMinutes, TimeToString(marketCloseTime, TIME_DATE | TIME_MINUTES));
+        else
+            PrintFormat("[MarketClose] Enabled. Threshold=%d min. %s is outside a trading session right now.",
+                g_mcMinutes, _Symbol);
 
-		EventSetTimer(5);   // watchdog: keeps working when ticks stop arriving before the close
-	}
+        EventSetTimer(5);   // watchdog: keeps working when ticks stop arriving before the close
+    }
 
-	// --- FIX: Reset global variables memory on Initialization ---
-	// This ensures levels force-recalculate when input parameters (like InpLookbackN) change
-	ZeroMemory(g_sessions);
+    // --- FIX: Reset global variables memory on Initialization ---
+    // This ensures levels force-recalculate when input parameters (like InpLookbackN) change
+    ZeroMemory(g_sessions);
 
-	// Create Reset Button on Chart
-	CreateResetButton();
+    // Create Reset Button on Chart
+    CreateResetButton();
 
-	// Initialize Session Array
-	g_sessions[0].enable = InpS1_Enable;
-	g_sessions[0].refH = InpS1_RefH;
-	g_sessions[0].refM = InpS1_RefM;
-	g_sessions[0].endH = InpS1_EndH;
-	g_sessions[0].endM = InpS1_EndM;
-	g_sessions[0].lineColor = InpS1_Color;
-	g_sessions[1].enable = InpS2_Enable;
-	g_sessions[1].refH = InpS2_RefH;
-	g_sessions[1].refM = InpS2_RefM;
-	g_sessions[1].endH = InpS2_EndH;
-	g_sessions[1].endM = InpS2_EndM;
-	g_sessions[1].lineColor = InpS2_Color;
-	g_sessions[2].enable = InpS3_Enable;
-	g_sessions[2].refH = InpS3_RefH;
-	g_sessions[2].refM = InpS3_RefM;
-	g_sessions[2].endH = InpS3_EndH;
-	g_sessions[2].endM = InpS3_EndM;
-	g_sessions[2].lineColor = InpS3_Color;
-	g_sessions[3].enable = InpS4_Enable;
-	g_sessions[3].refH = InpS4_RefH;
-	g_sessions[3].refM = InpS4_RefM;
-	g_sessions[3].endH = InpS4_EndH;
-	g_sessions[3].endM = InpS4_EndM;
-	g_sessions[3].lineColor = InpS4_Color;
+    // Initialize Session Array
+    g_sessions[0].enable = InpS1_Enable;
+    g_sessions[0].refH = InpS1_RefH;
+    g_sessions[0].refM = InpS1_RefM;
+    g_sessions[0].endH = InpS1_EndH;
+    g_sessions[0].endM = InpS1_EndM;
+    g_sessions[0].lineColor = InpS1_Color;
+    g_sessions[1].enable = InpS2_Enable;
+    g_sessions[1].refH = InpS2_RefH;
+    g_sessions[1].refM = InpS2_RefM;
+    g_sessions[1].endH = InpS2_EndH;
+    g_sessions[1].endM = InpS2_EndM;
+    g_sessions[1].lineColor = InpS2_Color;
+    g_sessions[2].enable = InpS3_Enable;
+    g_sessions[2].refH = InpS3_RefH;
+    g_sessions[2].refM = InpS3_RefM;
+    g_sessions[2].endH = InpS3_EndH;
+    g_sessions[2].endM = InpS3_EndM;
+    g_sessions[2].lineColor = InpS3_Color;
+    g_sessions[3].enable = InpS4_Enable;
+    g_sessions[3].refH = InpS4_RefH;
+    g_sessions[3].refM = InpS4_RefM;
+    g_sessions[3].endH = InpS4_EndH;
+    g_sessions[3].endM = InpS4_EndM;
+    g_sessions[3].lineColor = InpS4_Color;
 
-	for (int sessionIndex = 0; sessionIndex < 4; sessionIndex++)
-	{
-		if (g_sessions[sessionIndex].enable)
-		{
-			if (g_sessions[sessionIndex].refH < 0 || g_sessions[sessionIndex].refH > 23 || g_sessions[sessionIndex].refM < 0 || g_sessions[sessionIndex].refM > 59)
-			{
-				PrintFormat("Invalid Reference Time for Session %d", sessionIndex + 1);
-				return(INIT_PARAMETERS_INCORRECT);
-			}
-		}
-	}
+    for (int sessionIndex = 0; sessionIndex < 4; sessionIndex++)
+    {
+        if (g_sessions[sessionIndex].enable)
+        {
+            if (g_sessions[sessionIndex].refH < 0 || g_sessions[sessionIndex].refH > 23 || g_sessions[sessionIndex].refM < 0 || g_sessions[sessionIndex].refM > 59)
+            {
+                PrintFormat("Invalid Reference Time for Session %d", sessionIndex + 1);
+                return(INIT_PARAMETERS_INCORRECT);
+            }
+        }
+    }
 
-	g_trade.SetDeviationInPoints(InpSlippagePoints);
-	g_trade.SetTypeFillingBySymbol(_Symbol);
+    g_trade.SetDeviationInPoints(InpSlippagePoints);
+    g_trade.SetTypeFillingBySymbol(_Symbol);
 
-	// Compute levels on attach if time has already passed
-	for (int sessionIndex = 0; sessionIndex < 4; sessionIndex++)
-		UpdateSessionLevels(sessionIndex);
+    // Compute levels on attach if time has already passed
+    for (int sessionIndex = 0; sessionIndex < 4; sessionIndex++)
+        UpdateSessionLevels(sessionIndex);
 
-	g_lastBarTime = 0;
-	return(INIT_SUCCEEDED);
+    g_lastBarTime = 0;
+    return(INIT_SUCCEEDED);
 }
 
 //+------------------------------------------------------------------+
@@ -254,12 +255,12 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
 {
-	// --- FIX: Removed 'if(reason == REASON_REMOVE)' ---
-	// Always delete chart objects on Deinit (including REASON_PARAMETERS)
-	// to prevent stuck drawings when modifying inputs
-	ObjectsDeleteAll(0, OBJ_PREFIX);
+    // --- FIX: Removed 'if(reason == REASON_REMOVE)' ---
+    // Always delete chart objects on Deinit (including REASON_PARAMETERS)
+    // to prevent stuck drawings when modifying inputs
+    ObjectsDeleteAll(0, OBJ_PREFIX);
 
-	EventKillTimer();   // Market-Close Protection watchdog
+    EventKillTimer();   // Market-Close Protection watchdog
 }
 
 //+------------------------------------------------------------------+
@@ -267,39 +268,39 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 void OnTick()
 {
-	// Market-close protection runs before anything else so it can veto new entries
-	if (EnableCloseBeforeMarketClose)
-		ManageMarketCloseProtection();
+    // Market-close protection runs before anything else so it can veto new entries
+    if (EnableCloseBeforeMarketClose)
+        ManageMarketCloseProtection();
 
-	// Continuous trade state monitor (instantly catch SL/TP closes)
-	UpdateTradeState();
+    // Continuous trade state monitor (instantly catch SL/TP closes)
+    UpdateTradeState();
 
-	// For EntryMode 2 (Breakout Entry), evaluate on every tick after Reference Time
-	if (InpEntryMode == ENTRY_MODE_2)
-	{
-		for (int sessionIndex = 0; sessionIndex < 4; sessionIndex++)
-		{
-			if (IsSessionActiveForTrading(sessionIndex))
-				CheckEntrySignal(sessionIndex);
-		}
-	}
+    // For EntryMode 2 (Breakout Entry), evaluate on every tick after Reference Time
+    if (InpEntryMode == ENTRY_MODE_2)
+    {
+        for (int sessionIndex = 0; sessionIndex < 4; sessionIndex++)
+        {
+            if (IsSessionActiveForTrading(sessionIndex))
+                CheckEntrySignal(sessionIndex);
+        }
+    }
 
-	if (!IsNewBar())
-		return;
+    if (!IsNewBar())
+        return;
 
-	// 1. Calculate session levels
-	for (int sessionIndex = 0; sessionIndex < 4; sessionIndex++)
-		UpdateSessionLevels(sessionIndex);
+    // 1. Calculate session levels
+    for (int sessionIndex = 0; sessionIndex < 4; sessionIndex++)
+        UpdateSessionLevels(sessionIndex);
 
-	// 2. Evaluate entry signals for active sessions (EntryMode 1 and EntryMode 3)
-	if (InpEntryMode != ENTRY_MODE_2)
-	{
-		for (int sessionIndex = 0; sessionIndex < 4; sessionIndex++)
-		{
-			if (IsSessionActiveForTrading(sessionIndex))
-				CheckEntrySignal(sessionIndex);
-		}
-	}
+    // 2. Evaluate entry signals for active sessions (EntryMode 1 and EntryMode 3)
+    if (InpEntryMode != ENTRY_MODE_2)
+    {
+        for (int sessionIndex = 0; sessionIndex < 4; sessionIndex++)
+        {
+            if (IsSessionActiveForTrading(sessionIndex))
+                CheckEntrySignal(sessionIndex);
+        }
+    }
 }
 
 //+------------------------------------------------------------------+
@@ -307,11 +308,11 @@ void OnTick()
 //+------------------------------------------------------------------+
 bool IsNewBar()
 {
-	datetime currentBarTime = iTime(_Symbol, _Period, 0);
-	if (currentBarTime == g_lastBarTime)
-		return(false);
-	g_lastBarTime = currentBarTime;
-	return(true);
+    datetime currentBarTime = iTime(_Symbol, _Period, 0);
+    if (currentBarTime == g_lastBarTime)
+        return(false);
+    g_lastBarTime = currentBarTime;
+    return(true);
 }
 
 //+------------------------------------------------------------------+
@@ -319,131 +320,131 @@ bool IsNewBar()
 //+------------------------------------------------------------------+
 void UpdateSessionLevels(int sessionIndex)
 {
-	if (!g_sessions[sessionIndex].enable)
-		return;
+    if (!g_sessions[sessionIndex].enable)
+        return;
 
-	datetime currentServerTime = TimeCurrent();
-	MqlDateTime dateTimeStruct;
-	TimeToStruct(currentServerTime, dateTimeStruct);
+    datetime currentServerTime = TimeCurrent();
+    MqlDateTime dateTimeStruct;
+    TimeToStruct(currentServerTime, dateTimeStruct);
 
-	// Build today's Reference Time for session sessionIndex
-	dateTimeStruct.hour = g_sessions[sessionIndex].refH;
-	dateTimeStruct.min = g_sessions[sessionIndex].refM;
-	dateTimeStruct.sec = 0;
-	datetime referenceTime = StructToTime(dateTimeStruct);
+    // Build today's Reference Time for session sessionIndex
+    dateTimeStruct.hour = g_sessions[sessionIndex].refH;
+    dateTimeStruct.min = g_sessions[sessionIndex].refM;
+    dateTimeStruct.sec = 0;
+    datetime referenceTime = StructToTime(dateTimeStruct);
 
-	dateTimeStruct.hour = 0;
-	dateTimeStruct.min = 0;
-	dateTimeStruct.sec = 0;
-	datetime startOfDayTime = StructToTime(dateTimeStruct);
+    dateTimeStruct.hour = 0;
+    dateTimeStruct.min = 0;
+    dateTimeStruct.sec = 0;
+    datetime startOfDayTime = StructToTime(dateTimeStruct);
 
-	if (currentServerTime < referenceTime)
-		return; // Reference time not yet reached today
-	if (g_sessions[sessionIndex].levelsDay == startOfDayTime)
-		return; // Already calculated for today
+    if (currentServerTime < referenceTime)
+        return; // Reference time not yet reached today
+    if (g_sessions[sessionIndex].levelsDay == startOfDayTime)
+        return; // Already calculated for today
 
-	// Shift of reference candle
-	int referenceCandleShift = iBarShift(_Symbol, _Period, referenceTime, false);
-	if (referenceCandleShift < 0)
-		return;
+    // Shift of reference candle
+    int referenceCandleShift = iBarShift(_Symbol, _Period, referenceTime, false);
+    if (referenceCandleShift < 0)
+        return;
 
-	// Method 3 needs reference candle to be fully closed
-	if (InpMethod == METHOD_3 && referenceCandleShift == 0)
-		return;
+    // Method 3 needs reference candle to be fully closed
+    if (InpMethod == METHOD_3 && referenceCandleShift == 0)
+        return;
 
-	if (Bars(_Symbol, _Period) < referenceCandleShift + InpLookbackN + 2)
-		return;
+    if (Bars(_Symbol, _Period) < referenceCandleShift + InpLookbackN + 2)
+        return;
 
-	double calculatedHigh = 0.0, calculatedLow = 0.0;
+    double calculatedHigh = 0.0, calculatedLow = 0.0;
 
-	if (InpMethod == METHOD_3)
-	{
-		calculatedHigh = iHigh(_Symbol, _Period, referenceCandleShift);
-		calculatedLow = iLow(_Symbol, _Period, referenceCandleShift);
-	}
-	else
-	{
-		int windowStartShift = referenceCandleShift + 1;
-		int highestCandleShift = iHighest(_Symbol, _Period, MODE_HIGH, InpLookbackN, windowStartShift);
-		int lowestCandleShift = iLowest(_Symbol, _Period, MODE_LOW, InpLookbackN, windowStartShift);
+    if (InpMethod == METHOD_3)
+    {
+        calculatedHigh = iHigh(_Symbol, _Period, referenceCandleShift);
+        calculatedLow = iLow(_Symbol, _Period, referenceCandleShift);
+    }
+    else
+    {
+        int windowStartShift = referenceCandleShift + 1;
+        int highestCandleShift = iHighest(_Symbol, _Period, MODE_HIGH, InpLookbackN, windowStartShift);
+        int lowestCandleShift = iLowest(_Symbol, _Period, MODE_LOW, InpLookbackN, windowStartShift);
 
-		if (highestCandleShift < 0 || lowestCandleShift < 0)
-			return;
+        if (highestCandleShift < 0 || lowestCandleShift < 0)
+            return;
 
-		calculatedHigh = iHigh(_Symbol, _Period, highestCandleShift);
-		calculatedLow = iLow(_Symbol, _Period, lowestCandleShift);
+        calculatedHigh = iHigh(_Symbol, _Period, highestCandleShift);
+        calculatedLow = iLow(_Symbol, _Period, lowestCandleShift);
 
-		if (InpMethod == METHOD_2 && InpUpdateMode == UPDATE_MAIN_HL)
-		{
-			if (highestCandleShift < lowestCandleShift)
-			{
-				int candlesFromHighest = highestCandleShift - windowStartShift + 1;
-				int bearishCandleCount = 0;
-				for (int candleShift = windowStartShift; candleShift <= highestCandleShift; candleShift++)
-					if (iClose(_Symbol, _Period, candleShift) < iOpen(_Symbol, _Period, candleShift))
-						bearishCandleCount++;
+        if (InpMethod == METHOD_2 && InpUpdateMode == UPDATE_MAIN_HL)
+        {
+            if (highestCandleShift < lowestCandleShift)
+            {
+                int candlesFromHighest = highestCandleShift - windowStartShift + 1;
+                int bearishCandleCount = 0;
+                for (int candleShift = windowStartShift; candleShift <= highestCandleShift; candleShift++)
+                    if (iClose(_Symbol, _Period, candleShift) < iOpen(_Symbol, _Period, candleShift))
+                        bearishCandleCount++;
 
-				if (bearishCandleCount >= InpUpdateX)
-				{
-					int newLowestCandleShift = iLowest(_Symbol, _Period, MODE_LOW, candlesFromHighest, windowStartShift);
-					if (newLowestCandleShift >= 0)
-						calculatedLow = iLow(_Symbol, _Period, newLowestCandleShift);
-				}
-			}
-			else
-				if (lowestCandleShift < highestCandleShift)
-				{
-					int candlesFromLowest = lowestCandleShift - windowStartShift + 1;
-					int bullishCandleCount = 0;
-					for (int candleShift = windowStartShift; candleShift <= lowestCandleShift; candleShift++)
-						if (iClose(_Symbol, _Period, candleShift) > iOpen(_Symbol, _Period, candleShift))
-							bullishCandleCount++;
+                if (bearishCandleCount >= InpUpdateX)
+                {
+                    int newLowestCandleShift = iLowest(_Symbol, _Period, MODE_LOW, candlesFromHighest, windowStartShift);
+                    if (newLowestCandleShift >= 0)
+                        calculatedLow = iLow(_Symbol, _Period, newLowestCandleShift);
+                }
+            }
+            else
+                if (lowestCandleShift < highestCandleShift)
+                {
+                    int candlesFromLowest = lowestCandleShift - windowStartShift + 1;
+                    int bullishCandleCount = 0;
+                    for (int candleShift = windowStartShift; candleShift <= lowestCandleShift; candleShift++)
+                        if (iClose(_Symbol, _Period, candleShift) > iOpen(_Symbol, _Period, candleShift))
+                            bullishCandleCount++;
 
-					if (bullishCandleCount >= InpUpdateX)
-					{
-						int newHighestCandleShift = iHighest(_Symbol, _Period, MODE_HIGH, candlesFromLowest, windowStartShift);
-						if (newHighestCandleShift >= 0)
-							calculatedHigh = iHigh(_Symbol, _Period, newHighestCandleShift);
-					}
-				}
-		}
-	}
+                    if (bullishCandleCount >= InpUpdateX)
+                    {
+                        int newHighestCandleShift = iHighest(_Symbol, _Period, MODE_HIGH, candlesFromLowest, windowStartShift);
+                        if (newHighestCandleShift >= 0)
+                            calculatedHigh = iHigh(_Symbol, _Period, newHighestCandleShift);
+                    }
+                }
+        }
+    }
 
-	if (calculatedHigh <= calculatedLow)
-	{
-		PrintFormat("Session %d Level calculation rejected: High (%.5f) <= Low (%.5f)", sessionIndex + 1, calculatedHigh, calculatedLow);
-		return;
-	}
+    if (calculatedHigh <= calculatedLow)
+    {
+        PrintFormat("Session %d Level calculation rejected: High (%.5f) <= Low (%.5f)", sessionIndex + 1, calculatedHigh, calculatedLow);
+        return;
+    }
 
-	// Perform clean line reset when a new day starts
-	DeleteSessionObjects(sessionIndex);
+    // Perform clean line reset when a new day starts
+    DeleteSessionObjects(sessionIndex);
 
-	// Commit Levels & Reset Session State
-	g_sessions[sessionIndex].definedHigh = calculatedHigh;
-	g_sessions[sessionIndex].definedLow = calculatedLow;
-	g_sessions[sessionIndex].originalHigh = calculatedHigh; // Save original for reset button
-	g_sessions[sessionIndex].originalLow = calculatedLow;  // Save original for reset button
+    // Commit Levels & Reset Session State
+    g_sessions[sessionIndex].definedHigh = calculatedHigh;
+    g_sessions[sessionIndex].definedLow = calculatedLow;
+    g_sessions[sessionIndex].originalHigh = calculatedHigh; // Save original for reset button
+    g_sessions[sessionIndex].originalLow = calculatedLow;  // Save original for reset button
 
-	g_sessions[sessionIndex].levelsSet = true;
-	g_sessions[sessionIndex].levelsDay = startOfDayTime;
-	g_sessions[sessionIndex].refBarTime = iTime(_Symbol, _Period, referenceCandleShift);
-	g_sessions[sessionIndex].tradesToday = 0;
-	g_sessions[sessionIndex].trade1HitSL = false;
-	g_sessions[sessionIndex].haltTrading = false;
+    g_sessions[sessionIndex].levelsSet = true;
+    g_sessions[sessionIndex].levelsDay = startOfDayTime;
+    g_sessions[sessionIndex].refBarTime = iTime(_Symbol, _Period, referenceCandleShift);
+    g_sessions[sessionIndex].tradesToday = 0;
+    g_sessions[sessionIndex].trade1HitSL = false;
+    g_sessions[sessionIndex].haltTrading = false;
 
-	g_sessions[sessionIndex].buyTriggered = false;
-	g_sessions[sessionIndex].sellTriggered = false;
+    g_sessions[sessionIndex].buyTriggered = false;
+    g_sessions[sessionIndex].sellTriggered = false;
 
-	if (InpMethod == METHOD_3)
-		g_sessions[sessionIndex].lineStartTime = g_sessions[sessionIndex].refBarTime;
-	else
-		g_sessions[sessionIndex].lineStartTime = iTime(_Symbol, _Period, referenceCandleShift + InpLookbackN);
+    if (InpMethod == METHOD_3)
+        g_sessions[sessionIndex].lineStartTime = g_sessions[sessionIndex].refBarTime;
+    else
+        g_sessions[sessionIndex].lineStartTime = iTime(_Symbol, _Period, referenceCandleShift + InpLookbackN);
 
-	PrintFormat("[%s] Session %d Levels set (Method %d): High=%.5f  Low=%.5f",
-		TimeToString(startOfDayTime, TIME_DATE), sessionIndex + 1, (int)InpMethod, calculatedHigh, calculatedLow);
+    PrintFormat("[%s] Session %d Levels set (Method %d): High=%.5f  Low=%.5f",
+        TimeToString(startOfDayTime, TIME_DATE), sessionIndex + 1, (int)InpMethod, calculatedHigh, calculatedLow);
 
-	if (InpDrawLevels)
-		DrawSessionLevelLines(sessionIndex, startOfDayTime);
+    if (InpDrawLevels)
+        DrawSessionLevelLines(sessionIndex, startOfDayTime);
 }
 
 //+------------------------------------------------------------------+
@@ -451,133 +452,133 @@ void UpdateSessionLevels(int sessionIndex)
 //+------------------------------------------------------------------+
 void CheckEntrySignal(int sessionIndex)
 {
-	if (!g_sessions[sessionIndex].levelsSet || g_sessions[sessionIndex].haltTrading)
-		return;
+    if (!g_sessions[sessionIndex].levelsSet || g_sessions[sessionIndex].haltTrading)
+        return;
 
-	// Prevent stacking multiple open trades in the same session
-	if (HasOpenPositionForSession(sessionIndex))
-		return;
+    // Prevent stacking multiple open trades in the same session
+    if (HasOpenPositionForSession(sessionIndex))
+        return;
 
-	bool buySignal = false;
-	bool sellSignal = false;
-	double previousCandleHigh = 0.0, previousCandleLow = 0.0;
+    bool buySignal = false;
+    bool sellSignal = false;
+    double previousCandleHigh = 0.0, previousCandleLow = 0.0;
 
-	if (InpEntryMode == ENTRY_MODE_2)
-	{
-		// EntryMode = 2 (Breakout Entry)
-		datetime currentServerTime = TimeCurrent();
-		if (currentServerTime < g_sessions[sessionIndex].refBarTime)
-			return;
+    if (InpEntryMode == ENTRY_MODE_2)
+    {
+        // EntryMode = 2 (Breakout Entry)
+        datetime currentServerTime = TimeCurrent();
+        if (currentServerTime < g_sessions[sessionIndex].refBarTime)
+            return;
 
-		MqlTick latestTick;
-		if (!SymbolInfoTick(_Symbol, latestTick))
-			return;
+        MqlTick latestTick;
+        if (!SymbolInfoTick(_Symbol, latestTick))
+            return;
 
-		if (latestTick.bid > g_sessions[sessionIndex].definedHigh && !g_sessions[sessionIndex].buyTriggered)
-			buySignal = true;
+        if (latestTick.bid > g_sessions[sessionIndex].definedHigh && !g_sessions[sessionIndex].buyTriggered)
+            buySignal = true;
 
-		if (latestTick.bid < g_sessions[sessionIndex].definedLow && !g_sessions[sessionIndex].sellTriggered)
-			sellSignal = true;
-	}
-	else
-	{
-		// Breakout candle must have formed ON OR AFTER the session reference candle
-		datetime previousCandleTime = iTime(_Symbol, _Period, 1);
-		if (previousCandleTime < g_sessions[sessionIndex].refBarTime)
-			return;
+        if (latestTick.bid < g_sessions[sessionIndex].definedLow && !g_sessions[sessionIndex].sellTriggered)
+            sellSignal = true;
+    }
+    else
+    {
+        // Breakout candle must have formed ON OR AFTER the session reference candle
+        datetime previousCandleTime = iTime(_Symbol, _Period, 1);
+        if (previousCandleTime < g_sessions[sessionIndex].refBarTime)
+            return;
 
-		double previousCandleOpen = iOpen(_Symbol, _Period, 1);
-		previousCandleHigh = iHigh(_Symbol, _Period, 1);
-		previousCandleLow = iLow(_Symbol, _Period, 1);
-		double previousCandleClose = iClose(_Symbol, _Period, 1);
+        double previousCandleOpen = iOpen(_Symbol, _Period, 1);
+        previousCandleHigh = iHigh(_Symbol, _Period, 1);
+        previousCandleLow = iLow(_Symbol, _Period, 1);
+        double previousCandleClose = iClose(_Symbol, _Period, 1);
 
-		if (InpEntryMode == ENTRY_MODE_1)
-		{
-			// EntryMode = 1 (Current Behavior with Tolerance Buffers)
-			double previousCandleRange = previousCandleHigh - previousCandleLow;
-			double rangeLevels = g_sessions[sessionIndex].definedHigh - g_sessions[sessionIndex].definedLow;
+        if (InpEntryMode == ENTRY_MODE_1)
+        {
+            // EntryMode = 1 (Current Behavior with Tolerance Buffers)
+            double previousCandleRange = previousCandleHigh - previousCandleLow;
+            double rangeLevels = g_sessions[sessionIndex].definedHigh - g_sessions[sessionIndex].definedLow;
 
-			// Convert tolerance buffers from points to price values
-			double openTolerance = InpOpenTolerancePoints * _Point;
-			double breakoutTolerance = InpBreakoutTolerancePoints * _Point;
+            // Convert tolerance buffers from points to price values
+            double openTolerance = InpOpenTolerancePoints * _Point;
+            double breakoutTolerance = InpBreakoutTolerancePoints * _Point;
 
-			// Quality Filters
-			bool rangeOK = (previousCandleRange < rangeLevels);
+            // Quality Filters
+            bool rangeOK = (previousCandleRange < rangeLevels);
 
-			// Allow the open price to be slightly outside the levels by openTolerance
-			double allowedLow = g_sessions[sessionIndex].definedLow - openTolerance;
-			double allowedHigh = g_sessions[sessionIndex].definedHigh + openTolerance;
+            // Allow the open price to be slightly outside the levels by openTolerance
+            double allowedLow = g_sessions[sessionIndex].definedLow - openTolerance;
+            double allowedHigh = g_sessions[sessionIndex].definedHigh + openTolerance;
 
-			bool originOK = (previousCandleOpen >= allowedLow && previousCandleOpen <= allowedHigh);
+            bool originOK = (previousCandleOpen >= allowedLow && previousCandleOpen <= allowedHigh);
 
-			if (!rangeOK || !originOK)
-				return;
+            if (!rangeOK || !originOK)
+                return;
 
-			// --- Breakout Signals with Shadow Tolerance Buffer ---
+            // --- Breakout Signals with Shadow Tolerance Buffer ---
 
-			// Buy Signal Calculation
-			double buyBreakoutDistance = previousCandleClose - g_sessions[sessionIndex].definedHigh;
-			double upperShadow = previousCandleHigh - previousCandleClose;
+            // Buy Signal Calculation
+            double buyBreakoutDistance = previousCandleClose - g_sessions[sessionIndex].definedHigh;
+            double upperShadow = previousCandleHigh - previousCandleClose;
 
-			// Breakout distance plus tolerance buffer must be strictly greater than upper shadow length
-			if ((previousCandleClose > g_sessions[sessionIndex].definedHigh) &&
-				((buyBreakoutDistance + breakoutTolerance) > upperShadow) &&
-				!g_sessions[sessionIndex].buyTriggered)
-			{
-				buySignal = true;
-			}
+            // Breakout distance plus tolerance buffer must be strictly greater than upper shadow length
+            if ((previousCandleClose > g_sessions[sessionIndex].definedHigh) &&
+                ((buyBreakoutDistance + breakoutTolerance) > upperShadow) &&
+                !g_sessions[sessionIndex].buyTriggered)
+            {
+                buySignal = true;
+            }
 
-			// Sell Signal Calculation
-			double sellBreakoutDistance = g_sessions[sessionIndex].definedLow - previousCandleClose;
-			double lowerShadow = previousCandleClose - previousCandleLow;
+            // Sell Signal Calculation
+            double sellBreakoutDistance = g_sessions[sessionIndex].definedLow - previousCandleClose;
+            double lowerShadow = previousCandleClose - previousCandleLow;
 
-			// Breakout distance plus tolerance buffer must be strictly greater than lower shadow length
-			if ((previousCandleClose < g_sessions[sessionIndex].definedLow) &&
-				((sellBreakoutDistance + breakoutTolerance) > lowerShadow) &&
-				!g_sessions[sessionIndex].sellTriggered)
-			{
-				sellSignal = true;
-			}
-		}
-	else
-		if (InpEntryMode == ENTRY_MODE_3)
-		{
-			// EntryMode = 3 (Candle Close Confirmation)
-			if ((previousCandleClose > g_sessions[sessionIndex].definedHigh) && !g_sessions[sessionIndex].buyTriggered)
-				buySignal = true;
+            // Breakout distance plus tolerance buffer must be strictly greater than lower shadow length
+            if ((previousCandleClose < g_sessions[sessionIndex].definedLow) &&
+                ((sellBreakoutDistance + breakoutTolerance) > lowerShadow) &&
+                !g_sessions[sessionIndex].sellTriggered)
+            {
+                sellSignal = true;
+            }
+        }
+        else
+            if (InpEntryMode == ENTRY_MODE_3)
+            {
+                // EntryMode = 3 (Candle Close Confirmation)
+                if ((previousCandleClose > g_sessions[sessionIndex].definedHigh) && !g_sessions[sessionIndex].buyTriggered)
+                    buySignal = true;
 
-			if ((previousCandleClose < g_sessions[sessionIndex].definedLow) && !g_sessions[sessionIndex].sellTriggered)
-				sellSignal = true;
-		}
-}
+                if ((previousCandleClose < g_sessions[sessionIndex].definedLow) && !g_sessions[sessionIndex].sellTriggered)
+                    sellSignal = true;
+            }
+    }
 
-if (!buySignal && !sellSignal)
-return;
+    if (!buySignal && !sellSignal)
+        return;
 
-// Session Trade Management Rules
-if (g_sessions[sessionIndex].tradesToday >= 2)
-{
-	g_sessions[sessionIndex].haltTrading = true;
-	return;
-}
+    // Session Trade Management Rules
+    if (g_sessions[sessionIndex].tradesToday >= 2)
+    {
+        g_sessions[sessionIndex].haltTrading = true;
+        return;
+    }
 
-if (g_sessions[sessionIndex].tradesToday == 1)
-{
-	if (InpSkipSecondTradeIfFirstTP && !g_sessions[sessionIndex].trade1HitSL)
-	{
-		// Trade 1 closed via TP or manual close -> Halt trading for session
-		g_sessions[sessionIndex].haltTrading = true;
-		return;
-	}
-}
+    if (g_sessions[sessionIndex].tradesToday == 1)
+    {
+        if (InpSkipSecondTradeIfFirstTP && !g_sessions[sessionIndex].trade1HitSL)
+        {
+            // Trade 1 closed via TP or manual close -> Halt trading for session
+            g_sessions[sessionIndex].haltTrading = true;
+            return;
+        }
+    }
 
-double rewardToRiskRatio = (g_sessions[sessionIndex].tradesToday == 0) ? 2.0 : 4.0;
+    double rewardToRiskRatio = (g_sessions[sessionIndex].tradesToday == 0) ? 2.0 : 4.0;
 
-if (buySignal)
-ExecuteTrade(ORDER_TYPE_BUY, rewardToRiskRatio, sessionIndex, previousCandleHigh, previousCandleLow);
-else
-if (sellSignal)
-ExecuteTrade(ORDER_TYPE_SELL, rewardToRiskRatio, sessionIndex, previousCandleHigh, previousCandleLow);
+    if (buySignal)
+        ExecuteTrade(ORDER_TYPE_BUY, rewardToRiskRatio, sessionIndex, previousCandleHigh, previousCandleLow);
+    else
+        if (sellSignal)
+            ExecuteTrade(ORDER_TYPE_SELL, rewardToRiskRatio, sessionIndex, previousCandleHigh, previousCandleLow);
 }
 //+------------------------------------------------------------------+
 
@@ -586,122 +587,122 @@ ExecuteTrade(ORDER_TYPE_SELL, rewardToRiskRatio, sessionIndex, previousCandleHig
 //+------------------------------------------------------------------+
 void ExecuteTrade(const ENUM_ORDER_TYPE orderType, const double rewardToRiskRatio, int sessionIndex, double previousCandleHigh = 0.0, double previousCandleLow = 0.0)
 {
-	// Market-close protection: hard block (covers any call path)
-	if (EnableCloseBeforeMarketClose && g_mcBlockTrading)
-	{
-		PrintFormat("[MarketClose] Entry suppressed - trading blocked until %s (server time).",
-			TimeToString(g_mcResumeTime, TIME_DATE | TIME_MINUTES));
-		return;
-	}
+    // Market-close protection: hard block (covers any call path)
+    if (EnableCloseBeforeMarketClose && g_mcBlockTrading)
+    {
+        PrintFormat("[MarketClose] Entry suppressed - trading blocked until %s (server time).",
+            TimeToString(g_mcResumeTime, TIME_DATE | TIME_MINUTES));
+        return;
+    }
 
-	double pointValue = _Point;
-	double stopLossBuffer = InpSLBufferPoints * pointValue;
-	double takeProfitBuffer = InpTPBufferPoints * pointValue;
+    double pointValue = _Point;
+    double stopLossBuffer = InpSLBufferPoints * pointValue;
+    double takeProfitBuffer = InpTPBufferPoints * pointValue;
 
-	MqlTick latestTick;
-	if (!SymbolInfoTick(_Symbol, latestTick))
-		return;
+    MqlTick latestTick;
+    if (!SymbolInfoTick(_Symbol, latestTick))
+        return;
 
-	double entryPrice, stopLossPrice, takeProfitPrice;
+    double entryPrice, stopLossPrice, takeProfitPrice;
 
-	if (orderType == ORDER_TYPE_BUY)
-	{
-		entryPrice = latestTick.ask;
+    if (orderType == ORDER_TYPE_BUY)
+    {
+        entryPrice = latestTick.ask;
 
-		if (InpEntryMode == ENTRY_MODE_1)
-		{
-			double twoCandlesAgoLow = iLow(_Symbol, _Period, 2);
-			stopLossPrice = twoCandlesAgoLow - stopLossBuffer;
-		}
-		else
-			if (InpEntryMode == ENTRY_MODE_2)
-			{
-				stopLossPrice = g_sessions[sessionIndex].definedLow - stopLossBuffer;
-			}
-			else // ENTRY_MODE_3
-			{
-				double previousCandleRange = previousCandleHigh - previousCandleLow;
-				stopLossPrice = entryPrice - previousCandleRange - stopLossBuffer;
-			}
+        if (InpEntryMode == ENTRY_MODE_1)
+        {
+            double twoCandlesAgoLow = iLow(_Symbol, _Period, 2);
+            stopLossPrice = twoCandlesAgoLow - stopLossBuffer;
+        }
+        else
+            if (InpEntryMode == ENTRY_MODE_2)
+            {
+                stopLossPrice = g_sessions[sessionIndex].definedLow - stopLossBuffer;
+            }
+            else // ENTRY_MODE_3
+            {
+                double previousCandleRange = previousCandleHigh - previousCandleLow;
+                stopLossPrice = entryPrice - previousCandleRange - stopLossBuffer;
+            }
 
-		if (entryPrice - stopLossPrice <= 0)
-			return;
+        if (entryPrice - stopLossPrice <= 0)
+            return;
 
-		takeProfitPrice = entryPrice + ((entryPrice - stopLossPrice) * rewardToRiskRatio) - takeProfitBuffer;
-		if (takeProfitPrice <= entryPrice)
-			return;
-	}
-	else
-	{
-		entryPrice = latestTick.bid;
+        takeProfitPrice = entryPrice + ((entryPrice - stopLossPrice) * rewardToRiskRatio) - takeProfitBuffer;
+        if (takeProfitPrice <= entryPrice)
+            return;
+    }
+    else
+    {
+        entryPrice = latestTick.bid;
 
-		if (InpEntryMode == ENTRY_MODE_1)
-		{
-			double twoCandlesBeforeHigh = iHigh(_Symbol, _Period, 2);
-			stopLossPrice = twoCandlesBeforeHigh + stopLossBuffer;
-		}
-		else
-			if (InpEntryMode == ENTRY_MODE_2)
-			{
-				stopLossPrice = g_sessions[sessionIndex].definedHigh + stopLossBuffer;
-			}
-			else // ENTRY_MODE_3
-			{
-				double previousCandleRange = previousCandleHigh - previousCandleLow;
-				stopLossPrice = entryPrice + previousCandleRange + stopLossBuffer;
-			}
+        if (InpEntryMode == ENTRY_MODE_1)
+        {
+            double twoCandlesBeforeHigh = iHigh(_Symbol, _Period, 2);
+            stopLossPrice = twoCandlesBeforeHigh + stopLossBuffer;
+        }
+        else
+            if (InpEntryMode == ENTRY_MODE_2)
+            {
+                stopLossPrice = g_sessions[sessionIndex].definedHigh + stopLossBuffer;
+            }
+            else // ENTRY_MODE_3
+            {
+                double previousCandleRange = previousCandleHigh - previousCandleLow;
+                stopLossPrice = entryPrice + previousCandleRange + stopLossBuffer;
+            }
 
-		if (stopLossPrice - entryPrice <= 0)
-			return;
+        if (stopLossPrice - entryPrice <= 0)
+            return;
 
-		takeProfitPrice = entryPrice - ((stopLossPrice - entryPrice) * rewardToRiskRatio) + takeProfitBuffer;
-		if (takeProfitPrice >= entryPrice)
-			return;
-	}
+        takeProfitPrice = entryPrice - ((stopLossPrice - entryPrice) * rewardToRiskRatio) + takeProfitBuffer;
+        if (takeProfitPrice >= entryPrice)
+            return;
+    }
 
-	stopLossPrice = NormalizeDouble(stopLossPrice, _Digits);
-	takeProfitPrice = NormalizeDouble(takeProfitPrice, _Digits);
+    stopLossPrice = NormalizeDouble(stopLossPrice, _Digits);
+    takeProfitPrice = NormalizeDouble(takeProfitPrice, _Digits);
 
-	double brokerStopLevel = (double)SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL) * pointValue;
-	if (MathAbs(entryPrice - stopLossPrice) < brokerStopLevel || MathAbs(takeProfitPrice - entryPrice) < brokerStopLevel)
-	{
-		Print("Trade rejected: SL/TP inside broker minimum stop distance.");
-		return;
-	}
+    double brokerStopLevel = (double)SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL) * pointValue;
+    if (MathAbs(entryPrice - stopLossPrice) < brokerStopLevel || MathAbs(takeProfitPrice - entryPrice) < brokerStopLevel)
+    {
+        Print("Trade rejected: SL/TP inside broker minimum stop distance.");
+        return;
+    }
 
-	double tradeLotSize = CalcLots(MathAbs(entryPrice - stopLossPrice));
-	if (tradeLotSize <= 0)
-		return;
+    double tradeLotSize = CalcLots(MathAbs(entryPrice - stopLossPrice));
+    if (tradeLotSize <= 0)
+        return;
 
-	// Bind session index to Magic Number
-	g_trade.SetExpertMagicNumber(InpMagic + sessionIndex);
+    // Bind session index to Magic Number
+    g_trade.SetExpertMagicNumber(InpMagic + sessionIndex);
 
-	string tradeComment = StringFormat("DLB S%d [%02d:%02d-%02d:%02d] T%d RR1:%.0f",
-		sessionIndex + 1,
-		g_sessions[sessionIndex].refH,
-		g_sessions[sessionIndex].refM,
-		g_sessions[sessionIndex].endH,
-		g_sessions[sessionIndex].endM,
-		g_sessions[sessionIndex].tradesToday + 1,
-		rewardToRiskRatio);
+    string tradeComment = StringFormat("DLB S%d [%02d:%02d-%02d:%02d] T%d RR1:%.0f",
+        sessionIndex + 1,
+        g_sessions[sessionIndex].refH,
+        g_sessions[sessionIndex].refM,
+        g_sessions[sessionIndex].endH,
+        g_sessions[sessionIndex].endM,
+        g_sessions[sessionIndex].tradesToday + 1,
+        rewardToRiskRatio);
 
-	bool isTradeSuccessful = (orderType == ORDER_TYPE_BUY)
-		? g_trade.Buy(tradeLotSize, _Symbol, 0.0, stopLossPrice, takeProfitPrice, tradeComment)
-		: g_trade.Sell(tradeLotSize, _Symbol, 0.0, stopLossPrice, takeProfitPrice, tradeComment);
+    bool isTradeSuccessful = (orderType == ORDER_TYPE_BUY)
+        ? g_trade.Buy(tradeLotSize, _Symbol, 0.0, stopLossPrice, takeProfitPrice, tradeComment)
+        : g_trade.Sell(tradeLotSize, _Symbol, 0.0, stopLossPrice, takeProfitPrice, tradeComment);
 
-	if (isTradeSuccessful)
-	{
-		g_sessions[sessionIndex].tradesToday++;
-		if (orderType == ORDER_TYPE_BUY)
-			g_sessions[sessionIndex].buyTriggered = true;
-		if (orderType == ORDER_TYPE_SELL)
-			g_sessions[sessionIndex].sellTriggered = true;
+    if (isTradeSuccessful)
+    {
+        g_sessions[sessionIndex].tradesToday++;
+        if (orderType == ORDER_TYPE_BUY)
+            g_sessions[sessionIndex].buyTriggered = true;
+        if (orderType == ORDER_TYPE_SELL)
+            g_sessions[sessionIndex].sellTriggered = true;
 
-		PrintFormat("Session %d Trade %d opened: %s lots=%.2f SL=%.5f TP=%.5f (RR 1:%.0f)",
-			sessionIndex + 1, g_sessions[sessionIndex].tradesToday, (orderType == ORDER_TYPE_BUY ? "BUY" : "SELL"), tradeLotSize, stopLossPrice, takeProfitPrice, rewardToRiskRatio);
-	}
-	else
-		PrintFormat("Order failed: %d - %s", g_trade.ResultRetcode(), g_trade.ResultRetcodeDescription());
+        PrintFormat("Session %d Trade %d opened: %s lots=%.2f SL=%.5f TP=%.5f (RR 1:%.0f)",
+            sessionIndex + 1, g_sessions[sessionIndex].tradesToday, (orderType == ORDER_TYPE_BUY ? "BUY" : "SELL"), tradeLotSize, stopLossPrice, takeProfitPrice, rewardToRiskRatio);
+    }
+    else
+        PrintFormat("Order failed: %d - %s", g_trade.ResultRetcode(), g_trade.ResultRetcodeDescription());
 }
 
 //+------------------------------------------------------------------+
@@ -709,75 +710,72 @@ void ExecuteTrade(const ENUM_ORDER_TYPE orderType, const double rewardToRiskRati
 //+------------------------------------------------------------------+
 void UpdateTradeState()
 {
-	datetime currentServerTime = TimeCurrent();
+    datetime currentServerTime = TimeCurrent();
 
-	for (int sessionIndex = 0; sessionIndex < 4; sessionIndex++)
-	{
-		if (g_sessions[sessionIndex].tradesToday == 0 || g_sessions[sessionIndex].haltTrading)
-			continue;
+    for (int sessionIndex = 0; sessionIndex < 4; sessionIndex++)
+    {
+        if (g_sessions[sessionIndex].tradesToday == 0 || g_sessions[sessionIndex].haltTrading)
+            continue;
 
-		// Wait until open trade for this session closes
-		if (HasOpenPositionForSession(sessionIndex))
-			continue;
+        // Wait until open trade for this session closes
+        if (HasOpenPositionForSession(sessionIndex))
+            continue;
 
-		if (!HistorySelect(g_sessions[sessionIndex].levelsDay, currentServerTime + 60))
-			continue;
+        if (!HistorySelect(g_sessions[sessionIndex].levelsDay, currentServerTime + 60))
+            continue;
 
-		int totalDeals = HistoryDealsTotal();
-		long lastDealReason = -1;
+        int totalDeals = HistoryDealsTotal();
+        long lastDealReason = -1;
 
-		for (int dealIndex = totalDeals - 1; dealIndex >= 0; dealIndex--)
-		{
-			ulong dealTicket = HistoryDealGetTicket(dealIndex);
-			if (dealTicket == 0)
-				continue;
-			if (HistoryDealGetString(dealTicket, DEAL_SYMBOL) != _Symbol)
-				continue;
-			if ((ulong)HistoryDealGetInteger(dealTicket, DEAL_MAGIC) != (InpMagic + sessionIndex))
-				continue;
-			if (HistoryDealGetInteger(dealTicket, DEAL_ENTRY) != DEAL_ENTRY_OUT)
-				continue;
+        for (int dealIndex = totalDeals - 1; dealIndex >= 0; dealIndex--)
+        {
+            ulong dealTicket = HistoryDealGetTicket(dealIndex);
+            if (dealTicket == 0)
+                continue;
+            if (HistoryDealGetString(dealTicket, DEAL_SYMBOL) != _Symbol)
+                continue;
+            if ((ulong)HistoryDealGetInteger(dealTicket, DEAL_MAGIC) != (InpMagic + sessionIndex))
+                continue;
+            if (HistoryDealGetInteger(dealTicket, DEAL_ENTRY) != DEAL_ENTRY_OUT)
+                continue;
 
-			lastDealReason = HistoryDealGetInteger(dealTicket, DEAL_REASON);
-			break;
-		}
+            lastDealReason = HistoryDealGetInteger(dealTicket, DEAL_REASON);
+            break;
+        }
 
-		if (lastDealReason < 0)
-			continue;
+        if (lastDealReason < 0)
+            continue;
 
-		if (g_sessions[sessionIndex].tradesToday == 1)
-		{
-			if (lastDealReason == DEAL_REASON_SL)
-			{
-				if (!g_sessions[sessionIndex].trade1HitSL)
-				{
-					g_sessions[sessionIndex].trade1HitSL = true;
-					PrintFormat("Session %d Trade 1 hit SL -> Trade 2 now permitted (RR 1:4).", sessionIndex + 1);
-				}
-			}
-			else if (lastDealReason == DEAL_REASON_TP)
-			{
-				if (InpSkipSecondTradeIfFirstTP)
-				{
-					g_sessions[sessionIndex].haltTrading = true;
-					PrintFormat("Session %d Trade 1 hit TP -> Session halted (InpSkipSecondTradeIfFirstTP = true).", sessionIndex + 1);
-				}
-				else
-				{
-					PrintFormat("Session %d Trade 1 hit TP -> Trade 2 permitted (RR 1:4).", sessionIndex + 1);
-				}
-			}
-			else // Manual close or other close reasons
-			{
-				PrintFormat("Session %d Trade 1 closed manually/other (reason %d) -> Trade 2 permitted (RR 1:4).", sessionIndex + 1, lastDealReason);
-			}
-		}
-		else if (g_sessions[sessionIndex].tradesToday >= 2)
-		{
-			g_sessions[sessionIndex].haltTrading = true;
-			PrintFormat("Session %d Trade 2 closed -> Session halted.", sessionIndex + 1);
-		}
-	}
+        if (g_sessions[sessionIndex].tradesToday == 1)
+        {
+            if (lastDealReason == DEAL_REASON_SL)
+            {
+                if (!g_sessions[sessionIndex].trade1HitSL)
+                {
+                    g_sessions[sessionIndex].trade1HitSL = true;
+                    PrintFormat("Session %d Trade 1 hit SL -> Trade 2 now permitted (RR 1:4).", sessionIndex + 1);
+                }
+            }
+            else
+            {
+                if (InpSkipSecondTradeIfFirstTP)
+                {
+                    g_sessions[sessionIndex].haltTrading = true;
+                    PrintFormat("Session %d Trade 1 closed (non-SL) -> Session halted.", sessionIndex + 1);
+                }
+                else
+                {
+                    PrintFormat("Session %d Trade 1 closed (TP/non-SL) -> Trade 2 permitted.", sessionIndex + 1);
+                }
+            }
+        }
+        else
+            if (g_sessions[sessionIndex].tradesToday >= 2)
+            {
+                g_sessions[sessionIndex].haltTrading = true;
+                PrintFormat("Session %d Trade 2 closed -> Session halted.", sessionIndex + 1);
+            }
+    }
 }
 
 //+------------------------------------------------------------------+
@@ -785,33 +783,33 @@ void UpdateTradeState()
 //+------------------------------------------------------------------+
 bool IsSessionActiveForTrading(int sessionIndex)
 {
-	if (!g_sessions[sessionIndex].enable || !g_sessions[sessionIndex].levelsSet)
-		return false;
+    if (!g_sessions[sessionIndex].enable || !g_sessions[sessionIndex].levelsSet)
+        return false;
 
-	// Market-close protection: no new entries until the next valid trading session
-	if (EnableCloseBeforeMarketClose && g_mcBlockTrading)
-		return false;
+    // Market-close protection: no new entries until the next valid trading session
+    if (EnableCloseBeforeMarketClose && g_mcBlockTrading)
+        return false;
 
-	datetime currentServerTime = TimeCurrent();
-	MqlDateTime dateTimeStruct;
-	TimeToStruct(currentServerTime, dateTimeStruct);
+    datetime currentServerTime = TimeCurrent();
+    MqlDateTime dateTimeStruct;
+    TimeToStruct(currentServerTime, dateTimeStruct);
 
-	dateTimeStruct.hour = 0;
-	dateTimeStruct.min = 0;
-	dateTimeStruct.sec = 0;
-	datetime startOfDayTime = StructToTime(dateTimeStruct);
+    dateTimeStruct.hour = 0;
+    dateTimeStruct.min = 0;
+    dateTimeStruct.sec = 0;
+    datetime startOfDayTime = StructToTime(dateTimeStruct);
 
-	if (g_sessions[sessionIndex].levelsDay != startOfDayTime)
-		return false;
+    if (g_sessions[sessionIndex].levelsDay != startOfDayTime)
+        return false;
 
-	datetime tradeStartTime = startOfDayTime + g_sessions[sessionIndex].refH * 3600 + g_sessions[sessionIndex].refM * 60;
-	datetime tradeEndTime = startOfDayTime + g_sessions[sessionIndex].endH * 3600 + g_sessions[sessionIndex].endM * 60;
+    datetime tradeStartTime = startOfDayTime + g_sessions[sessionIndex].refH * 3600 + g_sessions[sessionIndex].refM * 60;
+    datetime tradeEndTime = startOfDayTime + g_sessions[sessionIndex].endH * 3600 + g_sessions[sessionIndex].endM * 60;
 
-	// If End Time is invalid or earlier than start, active until next session reference or EOD
-	if (tradeEndTime <= tradeStartTime)
-		tradeEndTime = GetNextSessionRefTime(sessionIndex, startOfDayTime);
+    // If End Time is invalid or earlier than start, active until next session reference or EOD
+    if (tradeEndTime <= tradeStartTime)
+        tradeEndTime = GetNextSessionRefTime(sessionIndex, startOfDayTime);
 
-	return (currentServerTime >= tradeStartTime && currentServerTime < tradeEndTime);
+    return (currentServerTime >= tradeStartTime && currentServerTime < tradeEndTime);
 }
 
 //+------------------------------------------------------------------+
@@ -819,20 +817,20 @@ bool IsSessionActiveForTrading(int sessionIndex)
 //+------------------------------------------------------------------+
 datetime GetNextSessionRefTime(int sessionIndex, datetime startOfDayTime)
 {
-	int currentSessionRefSeconds = g_sessions[sessionIndex].refH * 3600 + g_sessions[sessionIndex].refM * 60;
-	int nextSessionRefSeconds = 86400; // End of day (24:00)
+    int currentSessionRefSeconds = g_sessions[sessionIndex].refH * 3600 + g_sessions[sessionIndex].refM * 60;
+    int nextSessionRefSeconds = 86400; // End of day (24:00)
 
-	for (int i = 0; i < 4; i++)
-	{
-		if (i == sessionIndex || !g_sessions[i].enable)
-			continue;
+    for (int i = 0; i < 4; i++)
+    {
+        if (i == sessionIndex || !g_sessions[i].enable)
+            continue;
 
-		int otherSessionRefSeconds = g_sessions[i].refH * 3600 + g_sessions[i].refM * 60;
-		if (otherSessionRefSeconds > currentSessionRefSeconds && otherSessionRefSeconds < nextSessionRefSeconds)
-			nextSessionRefSeconds = otherSessionRefSeconds;
-	}
+        int otherSessionRefSeconds = g_sessions[i].refH * 3600 + g_sessions[i].refM * 60;
+        if (otherSessionRefSeconds > currentSessionRefSeconds && otherSessionRefSeconds < nextSessionRefSeconds)
+            nextSessionRefSeconds = otherSessionRefSeconds;
+    }
 
-	return (startOfDayTime + nextSessionRefSeconds);
+    return (startOfDayTime + nextSessionRefSeconds);
 }
 
 //+------------------------------------------------------------------+
@@ -840,16 +838,16 @@ datetime GetNextSessionRefTime(int sessionIndex, datetime startOfDayTime)
 //+------------------------------------------------------------------+
 bool HasOpenPositionForSession(int sessionIndex)
 {
-	for (int positionIndex = PositionsTotal() - 1; positionIndex >= 0; positionIndex--)
-	{
-		ulong positionTicket = PositionGetTicket(positionIndex);
-		if (positionTicket == 0)
-			continue;
-		if (PositionGetString(POSITION_SYMBOL) == _Symbol &&
-			(ulong)PositionGetInteger(POSITION_MAGIC) == (InpMagic + sessionIndex))
-			return(true);
-	}
-	return(false);
+    for (int positionIndex = PositionsTotal() - 1; positionIndex >= 0; positionIndex--)
+    {
+        ulong positionTicket = PositionGetTicket(positionIndex);
+        if (positionTicket == 0)
+            continue;
+        if (PositionGetString(POSITION_SYMBOL) == _Symbol &&
+            (ulong)PositionGetInteger(POSITION_MAGIC) == (InpMagic + sessionIndex))
+            return(true);
+    }
+    return(false);
 }
 
 //+------------------------------------------------------------------+
@@ -857,30 +855,30 @@ bool HasOpenPositionForSession(int sessionIndex)
 //+------------------------------------------------------------------+
 double CalcLots(const double stopLossDistance)
 {
-	double minimumLotSize = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
-	double maximumLotSize = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
-	double lotSizeStep = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
+    double minimumLotSize = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+    double maximumLotSize = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
+    double lotSizeStep = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
 
-	double calculatedLotSize = InpFixedLot;
+    double calculatedLotSize = InpFixedLot;
 
-	if (InpUseRiskPercent)
-	{
-		double symbolTickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
-		double symbolTickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
-		if (symbolTickValue <= 0 || symbolTickSize <= 0 || stopLossDistance <= 0)
-			return(0.0);
+    if (InpUseRiskPercent)
+    {
+        double symbolTickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
+        double symbolTickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+        if (symbolTickValue <= 0 || symbolTickSize <= 0 || stopLossDistance <= 0)
+            return(0.0);
 
-		double amountToRisk = AccountInfoDouble(ACCOUNT_BALANCE) * InpRiskPercent / 100.0;
-		double potentialLossPerLot = (stopLossDistance / symbolTickSize) * symbolTickValue;
-		if (potentialLossPerLot <= 0)
-			return(0.0);
+        double amountToRisk = AccountInfoDouble(ACCOUNT_BALANCE) * InpRiskPercent / 100.0;
+        double potentialLossPerLot = (stopLossDistance / symbolTickSize) * symbolTickValue;
+        if (potentialLossPerLot <= 0)
+            return(0.0);
 
-		calculatedLotSize = amountToRisk / potentialLossPerLot;
-	}
+        calculatedLotSize = amountToRisk / potentialLossPerLot;
+    }
 
-	calculatedLotSize = MathFloor(calculatedLotSize / lotSizeStep) * lotSizeStep;
-	calculatedLotSize = MathMax(minimumLotSize, MathMin(maximumLotSize, calculatedLotSize));
-	return(NormalizeDouble(calculatedLotSize, 2));
+    calculatedLotSize = MathFloor(calculatedLotSize / lotSizeStep) * lotSizeStep;
+    calculatedLotSize = MathMax(minimumLotSize, MathMin(maximumLotSize, calculatedLotSize));
+    return(NormalizeDouble(calculatedLotSize, 2));
 }
 
 //+------------------------------------------------------------------+
@@ -888,66 +886,81 @@ double CalcLots(const double stopLossDistance)
 //+------------------------------------------------------------------+
 void DrawSessionLevelLines(int sessionIndex, const datetime startOfDayTime)
 {
-	// Delete previous objects for this session before drawing new ones
-	DeleteSessionObjects(sessionIndex);
+    // Delete previous objects for this session before drawing new ones
+    DeleteSessionObjects(sessionIndex);
 
-	string dateString = TimeToString(startOfDayTime, TIME_DATE);
-	string objectPrefix = OBJ_PREFIX + "S" + IntegerToString(sessionIndex + 1) + "_";
+    string dateString = TimeToString(startOfDayTime, TIME_DATE);
+    string objectPrefix = OBJ_PREFIX + "S" + IntegerToString(sessionIndex + 1) + "_";
 
-	string highLineName = objectPrefix + "High_" + dateString;
-	string lowLineName = objectPrefix + "Low_" + dateString;
-	string referenceLineName = objectPrefix + "RefTime_" + dateString;
-	string highLabelName = objectPrefix + "HighLabel_" + dateString;
-	string lowLabelName = objectPrefix + "LowLabel_" + dateString;
+    string highLineName = objectPrefix + "High_" + dateString;
+    string lowLineName = objectPrefix + "Low_" + dateString;
+    string referenceLineName = objectPrefix + "RefTime_" + dateString;
+    string highLabelName = objectPrefix + "HighLabel_" + dateString;
+    string lowLabelName = objectPrefix + "LowLabel_" + dateString;
 
-	// Calculate and cache the line's end time in the session structure
-	g_sessions[sessionIndex].lineEndTime = GetNextSessionRefTime(sessionIndex, startOfDayTime);
 
-	// 1. Reference Vertical Line
-	ObjectCreate(0, referenceLineName, OBJ_VLINE, 0, g_sessions[sessionIndex].refBarTime, 0);
-	ObjectSetInteger(0, referenceLineName, OBJPROP_COLOR, g_sessions[sessionIndex].lineColor);
-	ObjectSetInteger(0, referenceLineName, OBJPROP_STYLE, InpReferenceLineStyle);
-	ObjectSetInteger(0, referenceLineName, OBJPROP_WIDTH, 1);
-	ObjectSetInteger(0, referenceLineName, OBJPROP_BACK, true);
-	ObjectSetInteger(0, referenceLineName, OBJPROP_SELECTABLE, false);
+    if (InpExtendLinesToSessionEnd)
+    {
+        // Calculate exact end time based on user inputs (endH and endM)
+        g_sessions[sessionIndex].lineEndTime = startOfDayTime + (g_sessions[sessionIndex].endH * 3600) + (g_sessions[sessionIndex].endM * 60);
 
-	// 2. High Line (Selectable for vertical dragging only)
-	ObjectCreate(0, highLineName, OBJ_TREND, 0, g_sessions[sessionIndex].lineStartTime, g_sessions[sessionIndex].definedHigh, g_sessions[sessionIndex].lineEndTime, g_sessions[sessionIndex].definedHigh);
-	ObjectSetInteger(0, highLineName, OBJPROP_COLOR, g_sessions[sessionIndex].lineColor);
-	ObjectSetInteger(0, highLineName, OBJPROP_WIDTH, 1);
-	ObjectSetInteger(0, highLineName, OBJPROP_STYLE, InpLineStyle);
-	ObjectSetInteger(0, highLineName, OBJPROP_RAY_RIGHT, false);
-	ObjectSetInteger(0, highLineName, OBJPROP_RAY_LEFT, false);
-	ObjectSetInteger(0, highLineName, OBJPROP_SELECTABLE, true);
-	ObjectSetInteger(0, highLineName, OBJPROP_SELECTED, false);
+        // If by mistake the end time is set before start time (e.g., overnight session), fallback to next session ref time or EOD
+        if (g_sessions[sessionIndex].lineEndTime <= g_sessions[sessionIndex].refBarTime)
+        {
+            g_sessions[sessionIndex].lineEndTime = GetNextSessionRefTime(sessionIndex, startOfDayTime);
+        }
+    }
+    else
+    {
+        // Calculate and cache the line's end time in the session structure
+        g_sessions[sessionIndex].lineEndTime = GetNextSessionRefTime(sessionIndex, startOfDayTime);
+    }
 
-	// 3. Low Line (Selectable for vertical dragging only)
-	ObjectCreate(0, lowLineName, OBJ_TREND, 0, g_sessions[sessionIndex].lineStartTime, g_sessions[sessionIndex].definedLow, g_sessions[sessionIndex].lineEndTime, g_sessions[sessionIndex].definedLow);
-	ObjectSetInteger(0, lowLineName, OBJPROP_COLOR, g_sessions[sessionIndex].lineColor);
-	ObjectSetInteger(0, lowLineName, OBJPROP_WIDTH, 1);
-	ObjectSetInteger(0, lowLineName, OBJPROP_STYLE, InpLineStyle);
-	ObjectSetInteger(0, lowLineName, OBJPROP_RAY_RIGHT, false);
-	ObjectSetInteger(0, lowLineName, OBJPROP_RAY_LEFT, false);
-	ObjectSetInteger(0, lowLineName, OBJPROP_SELECTABLE, true);
-	ObjectSetInteger(0, lowLineName, OBJPROP_SELECTED, false);
+    // 1. Reference Vertical Line
+    ObjectCreate(0, referenceLineName, OBJ_VLINE, 0, g_sessions[sessionIndex].refBarTime, 0);
+    ObjectSetInteger(0, referenceLineName, OBJPROP_COLOR, g_sessions[sessionIndex].lineColor);
+    ObjectSetInteger(0, referenceLineName, OBJPROP_STYLE, InpReferenceLineStyle);
+    ObjectSetInteger(0, referenceLineName, OBJPROP_WIDTH, 1);
+    ObjectSetInteger(0, referenceLineName, OBJPROP_BACK, true);
+    ObjectSetInteger(0, referenceLineName, OBJPROP_SELECTABLE, false);
 
-	// 4. High Price Label (Above High line, anchored left of Reference Bar)
-	ObjectCreate(0, highLabelName, OBJ_TEXT, 0, g_sessions[sessionIndex].refBarTime, g_sessions[sessionIndex].definedHigh);
-	ObjectSetString(0, highLabelName, OBJPROP_TEXT, DoubleToString(g_sessions[sessionIndex].definedHigh, _Digits) + " ");
-	ObjectSetInteger(0, highLabelName, OBJPROP_COLOR, g_sessions[sessionIndex].lineColor);
-	ObjectSetInteger(0, highLabelName, OBJPROP_FONTSIZE, InpPriceLabelFontSize);
-	ObjectSetInteger(0, highLabelName, OBJPROP_ANCHOR, ANCHOR_RIGHT_LOWER);
-	ObjectSetInteger(0, highLabelName, OBJPROP_SELECTABLE, false);
+    // 2. High Line (Selectable for vertical dragging only)
+    ObjectCreate(0, highLineName, OBJ_TREND, 0, g_sessions[sessionIndex].lineStartTime, g_sessions[sessionIndex].definedHigh, g_sessions[sessionIndex].lineEndTime, g_sessions[sessionIndex].definedHigh);
+    ObjectSetInteger(0, highLineName, OBJPROP_COLOR, g_sessions[sessionIndex].lineColor);
+    ObjectSetInteger(0, highLineName, OBJPROP_WIDTH, 1);
+    ObjectSetInteger(0, highLineName, OBJPROP_STYLE, InpLineStyle);
+    ObjectSetInteger(0, highLineName, OBJPROP_RAY_RIGHT, false);
+    ObjectSetInteger(0, highLineName, OBJPROP_RAY_LEFT, false);
+    ObjectSetInteger(0, highLineName, OBJPROP_SELECTABLE, true);
+    ObjectSetInteger(0, highLineName, OBJPROP_SELECTED, false);
 
-	// 5. Low Price Label (Below Low line, anchored left of Reference Bar)
-	ObjectCreate(0, lowLabelName, OBJ_TEXT, 0, g_sessions[sessionIndex].refBarTime, g_sessions[sessionIndex].definedLow);
-	ObjectSetString(0, lowLabelName, OBJPROP_TEXT, DoubleToString(g_sessions[sessionIndex].definedLow, _Digits) + " ");
-	ObjectSetInteger(0, lowLabelName, OBJPROP_COLOR, g_sessions[sessionIndex].lineColor);
-	ObjectSetInteger(0, lowLabelName, OBJPROP_FONTSIZE, InpPriceLabelFontSize);
-	ObjectSetInteger(0, lowLabelName, OBJPROP_ANCHOR, ANCHOR_RIGHT_UPPER);
-	ObjectSetInteger(0, lowLabelName, OBJPROP_SELECTABLE, false);
+    // 3. Low Line (Selectable for vertical dragging only)
+    ObjectCreate(0, lowLineName, OBJ_TREND, 0, g_sessions[sessionIndex].lineStartTime, g_sessions[sessionIndex].definedLow, g_sessions[sessionIndex].lineEndTime, g_sessions[sessionIndex].definedLow);
+    ObjectSetInteger(0, lowLineName, OBJPROP_COLOR, g_sessions[sessionIndex].lineColor);
+    ObjectSetInteger(0, lowLineName, OBJPROP_WIDTH, 1);
+    ObjectSetInteger(0, lowLineName, OBJPROP_STYLE, InpLineStyle);
+    ObjectSetInteger(0, lowLineName, OBJPROP_RAY_RIGHT, false);
+    ObjectSetInteger(0, lowLineName, OBJPROP_RAY_LEFT, false);
+    ObjectSetInteger(0, lowLineName, OBJPROP_SELECTABLE, true);
+    ObjectSetInteger(0, lowLineName, OBJPROP_SELECTED, false);
 
-	ChartRedraw(0);
+    // 4. High Price Label (Above High line, anchored left of Reference Bar)
+    ObjectCreate(0, highLabelName, OBJ_TEXT, 0, g_sessions[sessionIndex].refBarTime, g_sessions[sessionIndex].definedHigh);
+    ObjectSetString(0, highLabelName, OBJPROP_TEXT, DoubleToString(g_sessions[sessionIndex].definedHigh, _Digits) + " ");
+    ObjectSetInteger(0, highLabelName, OBJPROP_COLOR, g_sessions[sessionIndex].lineColor);
+    ObjectSetInteger(0, highLabelName, OBJPROP_FONTSIZE, InpPriceLabelFontSize);
+    ObjectSetInteger(0, highLabelName, OBJPROP_ANCHOR, ANCHOR_RIGHT_LOWER);
+    ObjectSetInteger(0, highLabelName, OBJPROP_SELECTABLE, false);
+
+    // 5. Low Price Label (Below Low line, anchored left of Reference Bar)
+    ObjectCreate(0, lowLabelName, OBJ_TEXT, 0, g_sessions[sessionIndex].refBarTime, g_sessions[sessionIndex].definedLow);
+    ObjectSetString(0, lowLabelName, OBJPROP_TEXT, DoubleToString(g_sessions[sessionIndex].definedLow, _Digits) + " ");
+    ObjectSetInteger(0, lowLabelName, OBJPROP_COLOR, g_sessions[sessionIndex].lineColor);
+    ObjectSetInteger(0, lowLabelName, OBJPROP_FONTSIZE, InpPriceLabelFontSize);
+    ObjectSetInteger(0, lowLabelName, OBJPROP_ANCHOR, ANCHOR_RIGHT_UPPER);
+    ObjectSetInteger(0, lowLabelName, OBJPROP_SELECTABLE, false);
+
+    ChartRedraw(0);
 }
 
 //+------------------------------------------------------------------+
@@ -955,9 +968,9 @@ void DrawSessionLevelLines(int sessionIndex, const datetime startOfDayTime)
 //+------------------------------------------------------------------+
 void DeleteSessionObjects(int sessionIndex)
 {
-	string objectPrefix = OBJ_PREFIX + "S" + IntegerToString(sessionIndex + 1) + "_";
-	ObjectsDeleteAll(0, objectPrefix);
-	ChartRedraw(0);
+    string objectPrefix = OBJ_PREFIX + "S" + IntegerToString(sessionIndex + 1) + "_";
+    ObjectsDeleteAll(0, objectPrefix);
+    ChartRedraw(0);
 }
 //+------------------------------------------------------------------+
 
@@ -965,30 +978,30 @@ void DeleteSessionObjects(int sessionIndex)
 //| Chart Event Handler                                              |
 //+------------------------------------------------------------------+
 void OnChartEvent(const int id,
-	const long& lparam,
-	const double& dparam,
-	const string& sparam)
+    const long& lparam,
+    const double& dparam,
+    const string& sparam)
 {
-	// 1. Handle Object Dragging (Manual High/Low Adjustments)
-	if (id == CHARTEVENT_OBJECT_DRAG || id == CHARTEVENT_OBJECT_CHANGE)
-	{
-		if (StringFind(sparam, OBJ_PREFIX) == 0 && sparam != BTN_RESET_NAME)
-		{
-			UpdateLevelsFromChartLines(sparam);
-		}
-	}
+    // 1. Handle Object Dragging (Manual High/Low Adjustments)
+    if (id == CHARTEVENT_OBJECT_DRAG || id == CHARTEVENT_OBJECT_CHANGE)
+    {
+        if (StringFind(sparam, OBJ_PREFIX) == 0 && sparam != BTN_RESET_NAME)
+        {
+            UpdateLevelsFromChartLines(sparam);
+        }
+    }
 
-	// 2. Handle Reset Button Click
-	if (id == CHARTEVENT_OBJECT_CLICK)
-	{
-		if (sparam == BTN_RESET_NAME)
-		{
-			ResetLevelsToOriginal();
+    // 2. Handle Reset Button Click
+    if (id == CHARTEVENT_OBJECT_CLICK)
+    {
+        if (sparam == BTN_RESET_NAME)
+        {
+            ResetLevelsToOriginal();
 
-			// Release the button state (pop it back up)
-			ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_STATE, false);
-		}
-	}
+            // Release the button state (pop it back up)
+            ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_STATE, false);
+        }
+    }
 }
 //+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
@@ -996,11 +1009,11 @@ void OnChartEvent(const int id,
 //+------------------------------------------------------------------+
 void UpdateSessionPriceLabel(const string labelName, const double newPrice)
 {
-	if (ObjectFind(0, labelName) >= 0)
-	{
-		ObjectSetDouble(0, labelName, OBJPROP_PRICE, newPrice);
-		ObjectSetString(0, labelName, OBJPROP_TEXT, DoubleToString(newPrice, _Digits) + " ");
-	}
+    if (ObjectFind(0, labelName) >= 0)
+    {
+        ObjectSetDouble(0, labelName, OBJPROP_PRICE, newPrice);
+        ObjectSetString(0, labelName, OBJPROP_TEXT, DoubleToString(newPrice, _Digits) + " ");
+    }
 }
 
 //+------------------------------------------------------------------+
@@ -1008,58 +1021,58 @@ void UpdateSessionPriceLabel(const string labelName, const double newPrice)
 //+------------------------------------------------------------------+
 void UpdateLevelsFromChartLines(const string objectName)
 {
-	for (int sessionIndex = 0; sessionIndex < 4; sessionIndex++)
-	{
-		string sessionPrefix = OBJ_PREFIX + "S" + IntegerToString(sessionIndex + 1) + "_";
+    for (int sessionIndex = 0; sessionIndex < 4; sessionIndex++)
+    {
+        string sessionPrefix = OBJ_PREFIX + "S" + IntegerToString(sessionIndex + 1) + "_";
 
-		// Match the dragged line with its corresponding session
-		if (StringFind(objectName, sessionPrefix) == 0)
-		{
-			// 1. Read price of whichever anchor point was moved (or anchor 0 by default)
-			double primaryAnchorPrice = ObjectGetDouble(0, objectName, OBJPROP_PRICE, 0);
-			double secondaryAnchorPrice = ObjectGetDouble(0, objectName, OBJPROP_PRICE, 1);
+        // Match the dragged line with its corresponding session
+        if (StringFind(objectName, sessionPrefix) == 0)
+        {
+            // 1. Read price of whichever anchor point was moved (or anchor 0 by default)
+            double primaryAnchorPrice = ObjectGetDouble(0, objectName, OBJPROP_PRICE, 0);
+            double secondaryAnchorPrice = ObjectGetDouble(0, objectName, OBJPROP_PRICE, 1);
 
-			// If anchor 1 was dragged to a different price than anchor 0, use anchor 1's price
-			if (MathAbs(primaryAnchorPrice - secondaryAnchorPrice) > _Point)
-			{
-				if (StringFind(objectName, "_High_") > 0 && MathAbs(secondaryAnchorPrice - g_sessions[sessionIndex].definedHigh) > _Point)
-					primaryAnchorPrice = secondaryAnchorPrice;
-				else
-					if (StringFind(objectName, "_Low_") > 0 && MathAbs(secondaryAnchorPrice - g_sessions[sessionIndex].definedLow) > _Point)
-						primaryAnchorPrice = secondaryAnchorPrice;
-			}
+            // If anchor 1 was dragged to a different price than anchor 0, use anchor 1's price
+            if (MathAbs(primaryAnchorPrice - secondaryAnchorPrice) > _Point)
+            {
+                if (StringFind(objectName, "_High_") > 0 && MathAbs(secondaryAnchorPrice - g_sessions[sessionIndex].definedHigh) > _Point)
+                    primaryAnchorPrice = secondaryAnchorPrice;
+                else
+                    if (StringFind(objectName, "_Low_") > 0 && MathAbs(secondaryAnchorPrice - g_sessions[sessionIndex].definedLow) > _Point)
+                        primaryAnchorPrice = secondaryAnchorPrice;
+            }
 
-			if (primaryAnchorPrice <= 0)
-				return;
+            if (primaryAnchorPrice <= 0)
+                return;
 
-			// 2. ENFORCE HORIZONTAL LOCK: Keep both anchors at the exact same Y-axis price
-			ObjectSetDouble(0, objectName, OBJPROP_PRICE, 0, primaryAnchorPrice);
-			ObjectSetDouble(0, objectName, OBJPROP_PRICE, 1, primaryAnchorPrice);
+            // 2. ENFORCE HORIZONTAL LOCK: Keep both anchors at the exact same Y-axis price
+            ObjectSetDouble(0, objectName, OBJPROP_PRICE, 0, primaryAnchorPrice);
+            ObjectSetDouble(0, objectName, OBJPROP_PRICE, 1, primaryAnchorPrice);
 
-			// 3. ENFORCE TIME ANCHOR LOCK: Prevent dragging start/end points horizontally
-			ObjectSetInteger(0, objectName, OBJPROP_TIME, 0, g_sessions[sessionIndex].lineStartTime);
-			ObjectSetInteger(0, objectName, OBJPROP_TIME, 1, g_sessions[sessionIndex].lineEndTime);
+            // 3. ENFORCE TIME ANCHOR LOCK: Prevent dragging start/end points horizontally
+            ObjectSetInteger(0, objectName, OBJPROP_TIME, 0, g_sessions[sessionIndex].lineStartTime);
+            ObjectSetInteger(0, objectName, OBJPROP_TIME, 1, g_sessions[sessionIndex].lineEndTime);
 
-			// 4. Update internal session levels and their corresponding text label
-			string dateString = TimeToString(g_sessions[sessionIndex].levelsDay, TIME_DATE);
-			if (StringFind(objectName, "_High_") > 0)
-			{
-				g_sessions[sessionIndex].definedHigh = primaryAnchorPrice;
-				UpdateSessionPriceLabel(sessionPrefix + "HighLabel_" + dateString, primaryAnchorPrice);
-				PrintFormat("[User Action] Session %d High manually adjusted to %.5f", sessionIndex + 1, primaryAnchorPrice);
-			}
-			else
-				if (StringFind(objectName, "_Low_") > 0)
-				{
-					g_sessions[sessionIndex].definedLow = primaryAnchorPrice;
-					UpdateSessionPriceLabel(sessionPrefix + "LowLabel_" + dateString, primaryAnchorPrice);
-					PrintFormat("[User Action] Session %d Low manually adjusted to %.5f", sessionIndex + 1, primaryAnchorPrice);
-				}
+            // 4. Update internal session levels and their corresponding text label
+            string dateString = TimeToString(g_sessions[sessionIndex].levelsDay, TIME_DATE);
+            if (StringFind(objectName, "_High_") > 0)
+            {
+                g_sessions[sessionIndex].definedHigh = primaryAnchorPrice;
+                UpdateSessionPriceLabel(sessionPrefix + "HighLabel_" + dateString, primaryAnchorPrice);
+                PrintFormat("[User Action] Session %d High manually adjusted to %.5f", sessionIndex + 1, primaryAnchorPrice);
+            }
+            else
+                if (StringFind(objectName, "_Low_") > 0)
+                {
+                    g_sessions[sessionIndex].definedLow = primaryAnchorPrice;
+                    UpdateSessionPriceLabel(sessionPrefix + "LowLabel_" + dateString, primaryAnchorPrice);
+                    PrintFormat("[User Action] Session %d Low manually adjusted to %.5f", sessionIndex + 1, primaryAnchorPrice);
+                }
 
-			ChartRedraw(0);
-			break;
-		}
-	}
+            ChartRedraw(0);
+            break;
+        }
+    }
 }
 //+------------------------------------------------------------------+
 
@@ -1070,28 +1083,28 @@ const string BTN_RESET_NAME = OBJ_PREFIX + "ResetBtn";
 //+------------------------------------------------------------------+
 void CreateResetButton()
 {
-	if (ObjectFind(0, BTN_RESET_NAME) < 0)
-	{
-		ObjectCreate(0, BTN_RESET_NAME, OBJ_BUTTON, 0, 0, 0);
-	}
+    if (ObjectFind(0, BTN_RESET_NAME) < 0)
+    {
+        ObjectCreate(0, BTN_RESET_NAME, OBJ_BUTTON, 0, 0, 0);
+    }
 
-	// Set user-defined coordinates & size
-	ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_CORNER, InpBtnCorner);
-	ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_XDISTANCE, InpBtnX);
-	ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_YDISTANCE, InpBtnY);
-	ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_XSIZE, InpBtnWidth);
-	ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_YSIZE, InpBtnHeight);
+    // Set user-defined coordinates & size
+    ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_CORNER, InpBtnCorner);
+    ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_XDISTANCE, InpBtnX);
+    ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_YDISTANCE, InpBtnY);
+    ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_XSIZE, InpBtnWidth);
+    ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_YSIZE, InpBtnHeight);
 
-	// Styling & Behavior
-	ObjectSetString(0, BTN_RESET_NAME, OBJPROP_TEXT, "Reset Levels");
-	ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_COLOR, clrWhite);
-	ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_BGCOLOR, clrSlateGray);
-	ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_BORDER_COLOR, clrBlack);
-	ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_STATE, false);
-	ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_HIDDEN, true);
-	ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_SELECTABLE, false);
+    // Styling & Behavior
+    ObjectSetString(0, BTN_RESET_NAME, OBJPROP_TEXT, "Reset Levels");
+    ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_COLOR, clrWhite);
+    ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_BGCOLOR, clrSlateGray);
+    ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_BORDER_COLOR, clrBlack);
+    ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_STATE, false);
+    ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_HIDDEN, true);
+    ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_SELECTABLE, false);
 
-	ChartRedraw(0);
+    ChartRedraw(0);
 }
 
 //+------------------------------------------------------------------+
@@ -1099,29 +1112,29 @@ void CreateResetButton()
 //+------------------------------------------------------------------+
 void ResetLevelsToOriginal()
 {
-	for (int sessionIndex = 0; sessionIndex < 4; sessionIndex++)
-	{
-		// Check if session is active and original levels exist
-		if (g_sessions[sessionIndex].levelsSet && g_sessions[sessionIndex].originalHigh > 0 && g_sessions[sessionIndex].originalLow > 0)
-		{
-			g_sessions[sessionIndex].definedHigh = g_sessions[sessionIndex].originalHigh;
-			g_sessions[sessionIndex].definedLow = g_sessions[sessionIndex].originalLow;
+    for (int sessionIndex = 0; sessionIndex < 4; sessionIndex++)
+    {
+        // Check if session is active and original levels exist
+        if (g_sessions[sessionIndex].levelsSet && g_sessions[sessionIndex].originalHigh > 0 && g_sessions[sessionIndex].originalLow > 0)
+        {
+            g_sessions[sessionIndex].definedHigh = g_sessions[sessionIndex].originalHigh;
+            g_sessions[sessionIndex].definedLow = g_sessions[sessionIndex].originalLow;
 
-			// Redraw lines (and labels) at their original coordinates
-			DrawSessionLevelLines(sessionIndex, g_sessions[sessionIndex].levelsDay);
+            // Redraw lines (and labels) at their original coordinates
+            DrawSessionLevelLines(sessionIndex, g_sessions[sessionIndex].levelsDay);
 
-			PrintFormat("[Reset] Session %d levels reverted to original: High=%.5f, Low=%.5f", sessionIndex + 1, g_sessions[sessionIndex].originalHigh, g_sessions[sessionIndex].originalLow);
-		}
-	}
-	ChartRedraw(0);
+            PrintFormat("[Reset] Session %d levels reverted to original: High=%.5f, Low=%.5f", sessionIndex + 1, g_sessions[sessionIndex].originalHigh, g_sessions[sessionIndex].originalLow);
+        }
+    }
+    ChartRedraw(0);
 }
 //+------------------------------------------------------------------+
 //| Timer Handler (watchdog for market-close protection)             |
 //+------------------------------------------------------------------+
 void OnTimer()
 {
-	if (EnableCloseBeforeMarketClose)
-		ManageMarketCloseProtection();
+    if (EnableCloseBeforeMarketClose)
+        ManageMarketCloseProtection();
 }
 //+------------------------------------------------------------------+
 //+==================================================================+
@@ -1134,28 +1147,28 @@ void OnTimer()
 //--- Most reliable server-side "now" -------------------------------
 datetime MarketCloseServerNow()
 {
-	datetime serverTime = TimeTradeServer();
-	datetime localTime = TimeCurrent();
-	return(serverTime > localTime ? serverTime : localTime);
+    datetime serverTime = TimeTradeServer();
+    datetime localTime = TimeCurrent();
+    return(serverTime > localTime ? serverTime : localTime);
 }
 
 //--- Server-time midnight of the given timestamp -------------------
 datetime MarketCloseDayStart(const datetime targetTime)
 {
-	MqlDateTime dateTimeStruct;
-	TimeToStruct(targetTime, dateTimeStruct);
-	dateTimeStruct.hour = 0;
-	dateTimeStruct.min = 0;
-	dateTimeStruct.sec = 0;
-	return(StructToTime(dateTimeStruct));
+    MqlDateTime dateTimeStruct;
+    TimeToStruct(targetTime, dateTimeStruct);
+    dateTimeStruct.hour = 0;
+    dateTimeStruct.min = 0;
+    dateTimeStruct.sec = 0;
+    return(StructToTime(dateTimeStruct));
 }
 
 //--- Server-time day of week of the given timestamp ----------------
 ENUM_DAY_OF_WEEK MarketCloseDayOfWeek(const datetime targetTime)
 {
-	MqlDateTime dateTimeStruct;
-	TimeToStruct(targetTime, dateTimeStruct);
-	return((ENUM_DAY_OF_WEEK)dateTimeStruct.day_of_week);
+    MqlDateTime dateTimeStruct;
+    TimeToStruct(targetTime, dateTimeStruct);
+    return((ENUM_DAY_OF_WEEK)dateTimeStruct.day_of_week);
 }
 
 //+------------------------------------------------------------------+
@@ -1165,43 +1178,43 @@ ENUM_DAY_OF_WEEK MarketCloseDayOfWeek(const datetime targetTime)
 //+------------------------------------------------------------------+
 int MarketCloseGetDaySessions(const datetime targetDayAnchor, int& sessionStartSeconds[], int& sessionEndSeconds[])
 {
-	ArrayResize(sessionStartSeconds, 0);
-	ArrayResize(sessionEndSeconds, 0);
+    ArrayResize(sessionStartSeconds, 0);
+    ArrayResize(sessionEndSeconds, 0);
 
-	ENUM_DAY_OF_WEEK dayOfWeek = MarketCloseDayOfWeek(targetDayAnchor);
-	datetime tempSessionStart, tempSessionEnd;
-	int sessionCount = 0;
+    ENUM_DAY_OF_WEEK dayOfWeek = MarketCloseDayOfWeek(targetDayAnchor);
+    datetime tempSessionStart, tempSessionEnd;
+    int sessionCount = 0;
 
-	for (uint sessionIndex = 0; sessionIndex < 24; sessionIndex++)
-	{
-		if (!SymbolInfoSessionTrade(_Symbol, dayOfWeek, sessionIndex, tempSessionStart, tempSessionEnd))
-			break;
+    for (uint sessionIndex = 0; sessionIndex < 24; sessionIndex++)
+    {
+        if (!SymbolInfoSessionTrade(_Symbol, dayOfWeek, sessionIndex, tempSessionStart, tempSessionEnd))
+            break;
 
-		int startSeconds = (int)((long)tempSessionStart % 86400);
-		int endSeconds = (int)((long)tempSessionEnd % 86400);
-		if (endSeconds <= startSeconds)
-			endSeconds = 86400;                       // session runs up to midnight
+        int startSeconds = (int)((long)tempSessionStart % 86400);
+        int endSeconds = (int)((long)tempSessionEnd % 86400);
+        if (endSeconds <= startSeconds)
+            endSeconds = 86400;                       // session runs up to midnight
 
-		ArrayResize(sessionStartSeconds, sessionCount + 1);
-		ArrayResize(sessionEndSeconds, sessionCount + 1);
-		sessionStartSeconds[sessionCount] = startSeconds;
-		sessionEndSeconds[sessionCount] = endSeconds;
-		sessionCount++;
-	}
+        ArrayResize(sessionStartSeconds, sessionCount + 1);
+        ArrayResize(sessionEndSeconds, sessionCount + 1);
+        sessionStartSeconds[sessionCount] = startSeconds;
+        sessionEndSeconds[sessionCount] = endSeconds;
+        sessionCount++;
+    }
 
-	// Defensive ordering (brokers normally return sessions sorted)
-	for (int sessionIndex = 1; sessionIndex < sessionCount; sessionIndex++)
-		for (int j = sessionIndex; j > 0 && sessionStartSeconds[j] < sessionStartSeconds[j - 1]; j--)
-		{
-			int tempStartSwap = sessionStartSeconds[j];
-			sessionStartSeconds[j] = sessionStartSeconds[j - 1];
-			sessionStartSeconds[j - 1] = tempStartSwap;
-			int tempEndSwap = sessionEndSeconds[j];
-			sessionEndSeconds[j] = sessionEndSeconds[j - 1];
-			sessionEndSeconds[j - 1] = tempEndSwap;
-		}
+    // Defensive ordering (brokers normally return sessions sorted)
+    for (int sessionIndex = 1; sessionIndex < sessionCount; sessionIndex++)
+        for (int j = sessionIndex; j > 0 && sessionStartSeconds[j] < sessionStartSeconds[j - 1]; j--)
+        {
+            int tempStartSwap = sessionStartSeconds[j];
+            sessionStartSeconds[j] = sessionStartSeconds[j - 1];
+            sessionStartSeconds[j - 1] = tempStartSwap;
+            int tempEndSwap = sessionEndSeconds[j];
+            sessionEndSeconds[j] = sessionEndSeconds[j - 1];
+            sessionEndSeconds[j - 1] = tempEndSwap;
+        }
 
-	return(sessionCount);
+    return(sessionCount);
 }
 
 //+------------------------------------------------------------------+
@@ -1213,85 +1226,85 @@ int MarketCloseGetDaySessions(const datetime targetDayAnchor, int& sessionStartS
 //+------------------------------------------------------------------+
 bool MarketCloseGetMarketCloseTime(const datetime currentTime, datetime& marketCloseTime)
 {
-	marketCloseTime = 0;
+    marketCloseTime = 0;
 
-	int mergeGapSeconds = (InpMC_SessionMergeGapMin > 0 ? InpMC_SessionMergeGapMin : 0) * 60;
+    int mergeGapSeconds = (InpMC_SessionMergeGapMin > 0 ? InpMC_SessionMergeGapMin : 0) * 60;
 
-	datetime startOfDay = MarketCloseDayStart(currentTime);
-	int      secondsSinceStartOfDay = (int)(currentTime - startOfDay);
+    datetime startOfDay = MarketCloseDayStart(currentTime);
+    int      secondsSinceStartOfDay = (int)(currentTime - startOfDay);
 
-	int startSecondsArray[], endSecondsArray[];
-	int totalSessions = MarketCloseGetDaySessions(startOfDay, startSecondsArray, endSecondsArray);
+    int startSecondsArray[], endSecondsArray[];
+    int totalSessions = MarketCloseGetDaySessions(startOfDay, startSecondsArray, endSecondsArray);
 
-	if (totalSessions <= 0)
-	{
-		if (!g_mcNoSchedWarned && MarketCloseDayOfWeek(currentTime) != SATURDAY && MarketCloseDayOfWeek(currentTime) != SUNDAY)
-		{
-			PrintFormat("[MarketClose] No trading session schedule published by the broker for %s on this weekday.", _Symbol);
-			g_mcNoSchedWarned = true;
-		}
-		return(false);                      // market closed today (weekend / holiday schedule)
-	}
+    if (totalSessions <= 0)
+    {
+        if (!g_mcNoSchedWarned && MarketCloseDayOfWeek(currentTime) != SATURDAY && MarketCloseDayOfWeek(currentTime) != SUNDAY)
+        {
+            PrintFormat("[MarketClose] No trading session schedule published by the broker for %s on this weekday.", _Symbol);
+            g_mcNoSchedWarned = true;
+        }
+        return(false);                      // market closed today (weekend / holiday schedule)
+    }
 
-	// Locate the session we are inside (a short pre-session gap counts as inside)
-	int currentSessionIndex = -1;
-	for (int i = 0; i < totalSessions; i++)
-		if (secondsSinceStartOfDay >= startSecondsArray[i] - mergeGapSeconds && secondsSinceStartOfDay < endSecondsArray[i])
-		{
-			currentSessionIndex = i;
-			break;
-		}
-	if (currentSessionIndex < 0)
-		return(false);                      // between sessions / outside trading hours
+    // Locate the session we are inside (a short pre-session gap counts as inside)
+    int currentSessionIndex = -1;
+    for (int i = 0; i < totalSessions; i++)
+        if (secondsSinceStartOfDay >= startSecondsArray[i] - mergeGapSeconds && secondsSinceStartOfDay < endSecondsArray[i])
+        {
+            currentSessionIndex = i;
+            break;
+        }
+    if (currentSessionIndex < 0)
+        return(false);                      // between sessions / outside trading hours
 
-	int sessionEndSeconds = endSecondsArray[currentSessionIndex];
-	int loopGuardCount = 0;
+    int sessionEndSeconds = endSecondsArray[currentSessionIndex];
+    int loopGuardCount = 0;
 
-	while (loopGuardCount++ < 10)
-	{
-		// (a) merge the next same-day session when the gap is negligible (split sessions)
-		bool isSessionMerged = false;
-		for (int i = currentSessionIndex + 1; i < totalSessions; i++)
-		{
-			if (startSecondsArray[i] >= sessionEndSeconds && (startSecondsArray[i] - sessionEndSeconds) <= mergeGapSeconds)
-			{
-				sessionEndSeconds = endSecondsArray[i];
-				currentSessionIndex = i;
-				isSessionMerged = true;
-				break;
-			}
-		}
-		if (isSessionMerged)
-			continue;
+    while (loopGuardCount++ < 10)
+    {
+        // (a) merge the next same-day session when the gap is negligible (split sessions)
+        bool isSessionMerged = false;
+        for (int i = currentSessionIndex + 1; i < totalSessions; i++)
+        {
+            if (startSecondsArray[i] >= sessionEndSeconds && (startSecondsArray[i] - sessionEndSeconds) <= mergeGapSeconds)
+            {
+                sessionEndSeconds = endSecondsArray[i];
+                currentSessionIndex = i;
+                isSessionMerged = true;
+                break;
+            }
+        }
+        if (isSessionMerged)
+            continue;
 
-		// (b) session ends at midnight -> does the next day continue seamlessly?
-		if (sessionEndSeconds >= 86400 - mergeGapSeconds)
-		{
-			datetime nextDayStart = startOfDay + 86400;
-			int nextDayStartSeconds[], nextDayEndSeconds[];
-			int nextDayTotalSessions = MarketCloseGetDaySessions(nextDayStart, nextDayStartSeconds, nextDayEndSeconds);
+        // (b) session ends at midnight -> does the next day continue seamlessly?
+        if (sessionEndSeconds >= 86400 - mergeGapSeconds)
+        {
+            datetime nextDayStart = startOfDay + 86400;
+            int nextDayStartSeconds[], nextDayEndSeconds[];
+            int nextDayTotalSessions = MarketCloseGetDaySessions(nextDayStart, nextDayStartSeconds, nextDayEndSeconds);
 
-			if (nextDayTotalSessions > 0 && nextDayStartSeconds[0] <= mergeGapSeconds)        // yes: Mon-Thu style rollover, market never closes
-			{
-				ArrayResize(startSecondsArray, nextDayTotalSessions);
-				ArrayResize(endSecondsArray, nextDayTotalSessions);
-				for (int i = 0; i < nextDayTotalSessions; i++)
-				{
-					startSecondsArray[i] = nextDayStartSeconds[i];
-					endSecondsArray[i] = nextDayEndSeconds[i];
-				}
-				startOfDay = nextDayStart;
-				totalSessions = nextDayTotalSessions;
-				currentSessionIndex = 0;
-				sessionEndSeconds = endSecondsArray[0];
-				continue;
-			}
-		}
-		break;                              // this is the real close (e.g. Friday early close)
-	}
+            if (nextDayTotalSessions > 0 && nextDayStartSeconds[0] <= mergeGapSeconds)         // yes: Mon-Thu style rollover, market never closes
+            {
+                ArrayResize(startSecondsArray, nextDayTotalSessions);
+                ArrayResize(endSecondsArray, nextDayTotalSessions);
+                for (int i = 0; i < nextDayTotalSessions; i++)
+                {
+                    startSecondsArray[i] = nextDayStartSeconds[i];
+                    endSecondsArray[i] = nextDayEndSeconds[i];
+                }
+                startOfDay = nextDayStart;
+                totalSessions = nextDayTotalSessions;
+                currentSessionIndex = 0;
+                sessionEndSeconds = endSecondsArray[0];
+                continue;
+            }
+        }
+        break;                              // this is the real close (e.g. Friday early close)
+    }
 
-	marketCloseTime = startOfDay + sessionEndSeconds;
-	return(true);
+    marketCloseTime = startOfDay + sessionEndSeconds;
+    return(true);
 }
 
 //+------------------------------------------------------------------+
@@ -1299,129 +1312,129 @@ bool MarketCloseGetMarketCloseTime(const datetime currentTime, datetime& marketC
 //+------------------------------------------------------------------+
 bool MarketCloseGetNextSessionStart(const datetime referenceTime, datetime& nextSessionOpenTime)
 {
-	nextSessionOpenTime = 0;
-	datetime baseDayStart = MarketCloseDayStart(referenceTime);
+    nextSessionOpenTime = 0;
+    datetime baseDayStart = MarketCloseDayStart(referenceTime);
 
-	for (int dayOffset = 0; dayOffset <= 8; dayOffset++)
-	{
-		datetime currentOffsetDay = baseDayStart + dayOffset * 86400;
-		int startSecondsArray[], endSecondsArray[];
-		int totalSessions = MarketCloseGetDaySessions(currentOffsetDay, startSecondsArray, endSecondsArray);
+    for (int dayOffset = 0; dayOffset <= 8; dayOffset++)
+    {
+        datetime currentOffsetDay = baseDayStart + dayOffset * 86400;
+        int startSecondsArray[], endSecondsArray[];
+        int totalSessions = MarketCloseGetDaySessions(currentOffsetDay, startSecondsArray, endSecondsArray);
 
-		for (int i = 0; i < totalSessions; i++)
-		{
-			datetime calculatedSessionStart = currentOffsetDay + startSecondsArray[i];
-			if (calculatedSessionStart > referenceTime)
-			{
-				nextSessionOpenTime = calculatedSessionStart;
-				return(true);
-			}
-		}
-	}
-	return(false);
+        for (int i = 0; i < totalSessions; i++)
+        {
+            datetime calculatedSessionStart = currentOffsetDay + startSecondsArray[i];
+            if (calculatedSessionStart > referenceTime)
+            {
+                nextSessionOpenTime = calculatedSessionStart;
+                return(true);
+            }
+        }
+    }
+    return(false);
 }
 
 //--- Does this EA still have exposure on the symbol? ---------------
 bool MarketCloseHasExposure()
 {
-	for (int positionIndex = PositionsTotal() - 1; positionIndex >= 0; positionIndex--)
-	{
-		ulong positionTicket = PositionGetTicket(positionIndex);
-		if (positionTicket == 0)
-			continue;
-		if (PositionGetString(POSITION_SYMBOL) != _Symbol)
-			continue;
-		ulong expertMagicNumber = (ulong)PositionGetInteger(POSITION_MAGIC);
-		if (InpMC_CloseOnlyEaTrades && (expertMagicNumber < InpMagic || expertMagicNumber > InpMagic + 3))
-			continue;
-		return(true);
-	}
+    for (int positionIndex = PositionsTotal() - 1; positionIndex >= 0; positionIndex--)
+    {
+        ulong positionTicket = PositionGetTicket(positionIndex);
+        if (positionTicket == 0)
+            continue;
+        if (PositionGetString(POSITION_SYMBOL) != _Symbol)
+            continue;
+        ulong expertMagicNumber = (ulong)PositionGetInteger(POSITION_MAGIC);
+        if (InpMC_CloseOnlyEaTrades && (expertMagicNumber < InpMagic || expertMagicNumber > InpMagic + 3))
+            continue;
+        return(true);
+    }
 
-	for (int orderIndex = OrdersTotal() - 1; orderIndex >= 0; orderIndex--)
-	{
-		ulong orderTicket = OrderGetTicket(orderIndex);
-		if (orderTicket == 0)
-			continue;
-		if (OrderGetString(ORDER_SYMBOL) != _Symbol)
-			continue;
-		ulong expertMagicNumber = (ulong)OrderGetInteger(ORDER_MAGIC);
-		if (InpMC_CloseOnlyEaTrades && (expertMagicNumber < InpMagic || expertMagicNumber > InpMagic + 3))
-			continue;
-		return(true);
-	}
-	return(false);
+    for (int orderIndex = OrdersTotal() - 1; orderIndex >= 0; orderIndex--)
+    {
+        ulong orderTicket = OrderGetTicket(orderIndex);
+        if (orderTicket == 0)
+            continue;
+        if (OrderGetString(ORDER_SYMBOL) != _Symbol)
+            continue;
+        ulong expertMagicNumber = (ulong)OrderGetInteger(ORDER_MAGIC);
+        if (InpMC_CloseOnlyEaTrades && (expertMagicNumber < InpMagic || expertMagicNumber > InpMagic + 3))
+            continue;
+        return(true);
+    }
+    return(false);
 }
 
 //--- Step 1: cancel pending orders for the symbol ------------------
 int MarketCloseCancelPendingOrders()
 {
-	int cancelledOrdersCount = 0;
+    int cancelledOrdersCount = 0;
 
-	for (int i = OrdersTotal() - 1; i >= 0; i--)
-	{
-		ulong orderTicket = OrderGetTicket(i);
-		if (orderTicket == 0)
-			continue;
-		if (OrderGetString(ORDER_SYMBOL) != _Symbol)
-			continue;
+    for (int i = OrdersTotal() - 1; i >= 0; i--)
+    {
+        ulong orderTicket = OrderGetTicket(i);
+        if (orderTicket == 0)
+            continue;
+        if (OrderGetString(ORDER_SYMBOL) != _Symbol)
+            continue;
 
-		ulong expertMagicNumber = (ulong)OrderGetInteger(ORDER_MAGIC);
-		if (InpMC_CloseOnlyEaTrades && (expertMagicNumber < InpMagic || expertMagicNumber > InpMagic + 3))
-			continue;
+        ulong expertMagicNumber = (ulong)OrderGetInteger(ORDER_MAGIC);
+        if (InpMC_CloseOnlyEaTrades && (expertMagicNumber < InpMagic || expertMagicNumber > InpMagic + 3))
+            continue;
 
-		if (g_trade.OrderDelete(orderTicket))
-		{
-			cancelledOrdersCount++;
-			PrintFormat("[MarketClose] Pending order #%I64u (%s) cancelled before market close.",
-				orderTicket, EnumToString((ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE)));
-		}
-		else
-			PrintFormat("[MarketClose] FAILED to cancel pending order #%I64u: %d - %s",
-				orderTicket, g_trade.ResultRetcode(), g_trade.ResultRetcodeDescription());
-	}
+        if (g_trade.OrderDelete(orderTicket))
+        {
+            cancelledOrdersCount++;
+            PrintFormat("[MarketClose] Pending order #%I64u (%s) cancelled before market close.",
+                orderTicket, EnumToString((ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE)));
+        }
+        else
+            PrintFormat("[MarketClose] FAILED to cancel pending order #%I64u: %d - %s",
+                orderTicket, g_trade.ResultRetcode(), g_trade.ResultRetcodeDescription());
+    }
 
-	if (cancelledOrdersCount > 0)
-		PrintFormat("[MarketClose] %d pending order(s) cancelled for %s.", cancelledOrdersCount, _Symbol);
+    if (cancelledOrdersCount > 0)
+        PrintFormat("[MarketClose] %d pending order(s) cancelled for %s.", cancelledOrdersCount, _Symbol);
 
-	return(cancelledOrdersCount);
+    return(cancelledOrdersCount);
 }
 
 //--- Step 2: close every open position for the symbol --------------
 int MarketCloseCloseAllPositions()
 {
-	int closedPositionsCount = 0;
+    int closedPositionsCount = 0;
 
-	for (int i = PositionsTotal() - 1; i >= 0; i--)
-	{
-		ulong positionTicket = PositionGetTicket(i);
-		if (positionTicket == 0)
-			continue;
-		if (PositionGetString(POSITION_SYMBOL) != _Symbol)
-			continue;
+    for (int i = PositionsTotal() - 1; i >= 0; i--)
+    {
+        ulong positionTicket = PositionGetTicket(i);
+        if (positionTicket == 0)
+            continue;
+        if (PositionGetString(POSITION_SYMBOL) != _Symbol)
+            continue;
 
-		ulong expertMagicNumber = (ulong)PositionGetInteger(POSITION_MAGIC);
-		if (InpMC_CloseOnlyEaTrades && (expertMagicNumber < InpMagic || expertMagicNumber > InpMagic + 3))
-			continue;
+        ulong expertMagicNumber = (ulong)PositionGetInteger(POSITION_MAGIC);
+        if (InpMC_CloseOnlyEaTrades && (expertMagicNumber < InpMagic || expertMagicNumber > InpMagic + 3))
+            continue;
 
-		double positionVolume = PositionGetDouble(POSITION_VOLUME);
-		double positionProfit = PositionGetDouble(POSITION_PROFIT);
-		string positionDirection = (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY ? "BUY" : "SELL");
+        double positionVolume = PositionGetDouble(POSITION_VOLUME);
+        double positionProfit = PositionGetDouble(POSITION_PROFIT);
+        string positionDirection = (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY ? "BUY" : "SELL");
 
-		if (g_trade.PositionClose(positionTicket, InpSlippagePoints))
-		{
-			closedPositionsCount++;
-			PrintFormat("[MarketClose] Position #%I64u %s %.2f lots (magic %I64u, P/L %.2f) CLOSED by market-close protection.",
-				positionTicket, positionDirection, positionVolume, expertMagicNumber, positionProfit);
-		}
-		else
-			PrintFormat("[MarketClose] FAILED to close position #%I64u: %d - %s (will retry)",
-				positionTicket, g_trade.ResultRetcode(), g_trade.ResultRetcodeDescription());
-	}
+        if (g_trade.PositionClose(positionTicket, InpSlippagePoints))
+        {
+            closedPositionsCount++;
+            PrintFormat("[MarketClose] Position #%I64u %s %.2f lots (magic %I64u, P/L %.2f) CLOSED by market-close protection.",
+                positionTicket, positionDirection, positionVolume, expertMagicNumber, positionProfit);
+        }
+        else
+            PrintFormat("[MarketClose] FAILED to close position #%I64u: %d - %s (will retry)",
+                positionTicket, g_trade.ResultRetcode(), g_trade.ResultRetcodeDescription());
+    }
 
-	if (closedPositionsCount > 0)
-		PrintFormat("[MarketClose] %d position(s) closed for %s.", closedPositionsCount, _Symbol);
+    if (closedPositionsCount > 0)
+        PrintFormat("[MarketClose] %d position(s) closed for %s.", closedPositionsCount, _Symbol);
 
-	return(closedPositionsCount);
+    return(closedPositionsCount);
 }
 
 //+------------------------------------------------------------------+
@@ -1429,91 +1442,91 @@ int MarketCloseCloseAllPositions()
 //+------------------------------------------------------------------+
 void ManageMarketCloseProtection()
 {
-	if (!EnableCloseBeforeMarketClose)
-		return;
+    if (!EnableCloseBeforeMarketClose)
+        return;
 
-	datetime currentServerTime = MarketCloseServerNow();
-	if (currentServerTime <= 0)
-		return;
+    datetime currentServerTime = MarketCloseServerNow();
+    if (currentServerTime <= 0)
+        return;
 
-	// --- Release the block once the next valid trading session has begun ---
-	if (g_mcBlockTrading && g_mcResumeTime > 0 && currentServerTime >= g_mcResumeTime)
-	{
-		g_mcBlockTrading = false;
-		g_mcLastLoggedMin = -1;
-		PrintFormat("[MarketClose] New trading session started (%s server time) -> trading re-enabled.",
-			TimeToString(currentServerTime, TIME_DATE | TIME_MINUTES));
-	}
+    // --- Release the block once the next valid trading session has begun ---
+    if (g_mcBlockTrading && g_mcResumeTime > 0 && currentServerTime >= g_mcResumeTime)
+    {
+        g_mcBlockTrading = false;
+        g_mcLastLoggedMin = -1;
+        PrintFormat("[MarketClose] New trading session started (%s server time) -> trading re-enabled.",
+            TimeToString(currentServerTime, TIME_DATE | TIME_MINUTES));
+    }
 
-	// --- Resolve the actual market closing time from the symbol schedule ---
-	datetime calculatedCloseTime = 0;
-	if (!MarketCloseGetMarketCloseTime(currentServerTime, calculatedCloseTime))
-	{
-		// Outside a trading session: keep any active block, nothing else to do
-		if (g_mcBlockTrading && g_mcResumeTime > 0)
-			return;
-		return;
-	}
+    // --- Resolve the actual market closing time from the symbol schedule ---
+    datetime calculatedCloseTime = 0;
+    if (!MarketCloseGetMarketCloseTime(currentServerTime, calculatedCloseTime))
+    {
+        // Outside a trading session: keep any active block, nothing else to do
+        if (g_mcBlockTrading && g_mcResumeTime > 0)
+            return;
+        return;
+    }
 
-	long remainingSecondsToClose = (long)(calculatedCloseTime - currentServerTime);
-	int  remainingMinutesToClose = (int)MathCeil(remainingSecondsToClose / 60.0);
+    long remainingSecondsToClose = (long)(calculatedCloseTime - currentServerTime);
+    int  remainingMinutesToClose = (int)MathCeil(remainingSecondsToClose / 60.0);
 
-	// --- Log the detected closing time once per resolved close ---
-	if (calculatedCloseTime != g_mcLoggedClose)
-	{
-		g_mcLoggedClose = calculatedCloseTime;
-		MqlDateTime closeTimeStruct;
-		TimeToStruct(calculatedCloseTime, closeTimeStruct);
-		PrintFormat("[MarketClose] Detected market close for %s: %s (server time, %s) | remaining: %d min | trigger threshold: %d min",
-			_Symbol,
-			TimeToString(calculatedCloseTime, TIME_DATE | TIME_MINUTES),
-			EnumToString((ENUM_DAY_OF_WEEK)closeTimeStruct.day_of_week),
-			remainingMinutesToClose, g_mcMinutes);
-	}
+    // --- Log the detected closing time once per resolved close ---
+    if (calculatedCloseTime != g_mcLoggedClose)
+    {
+        g_mcLoggedClose = calculatedCloseTime;
+        MqlDateTime closeTimeStruct;
+        TimeToStruct(calculatedCloseTime, closeTimeStruct);
+        PrintFormat("[MarketClose] Detected market close for %s: %s (server time, %s) | remaining: %d min | trigger threshold: %d min",
+            _Symbol,
+            TimeToString(calculatedCloseTime, TIME_DATE | TIME_MINUTES),
+            EnumToString((ENUM_DAY_OF_WEEK)closeTimeStruct.day_of_week),
+            remainingMinutesToClose, g_mcMinutes);
+    }
 
-	// --- Countdown logging inside the final hour / threshold window ---
-	int loggingWindowMinutes = (g_mcMinutes > 60 ? g_mcMinutes + 15 : 60);
-	if (remainingMinutesToClose <= loggingWindowMinutes && remainingMinutesToClose != g_mcLastLoggedMin)
-	{
-		g_mcLastLoggedMin = remainingMinutesToClose;
-		PrintFormat("[MarketClose] %s closes at %s - %d minute(s) remaining (threshold %d).",
-			_Symbol, TimeToString(calculatedCloseTime, TIME_DATE | TIME_MINUTES), remainingMinutesToClose, g_mcMinutes);
-	}
+    // --- Countdown logging inside the final hour / threshold window ---
+    int loggingWindowMinutes = (g_mcMinutes > 60 ? g_mcMinutes + 15 : 60);
+    if (remainingMinutesToClose <= loggingWindowMinutes && remainingMinutesToClose != g_mcLastLoggedMin)
+    {
+        g_mcLastLoggedMin = remainingMinutesToClose;
+        PrintFormat("[MarketClose] %s closes at %s - %d minute(s) remaining (threshold %d).",
+            _Symbol, TimeToString(calculatedCloseTime, TIME_DATE | TIME_MINUTES), remainingMinutesToClose, g_mcMinutes);
+    }
 
-	// --- Trigger window reached ---
-	if (remainingSecondsToClose <= (long)g_mcMinutes * 60)
-	{
-		bool isFirstTimeHandlingClose = (g_mcHandledClose != calculatedCloseTime);
+    // --- Trigger window reached ---
+    if (remainingSecondsToClose <= (long)g_mcMinutes * 60)
+    {
+        bool isFirstTimeHandlingClose = (g_mcHandledClose != calculatedCloseTime);
 
-		if (isFirstTimeHandlingClose)
-		{
-			g_mcHandledClose = calculatedCloseTime;
-			PrintFormat("[MarketClose] *** PROTECTION TRIGGERED *** %d min (<= %d) to market close at %s. Flattening %s.",
-				remainingMinutesToClose, g_mcMinutes,
-				TimeToString(calculatedCloseTime, TIME_DATE | TIME_MINUTES), _Symbol);
+        if (isFirstTimeHandlingClose)
+        {
+            g_mcHandledClose = calculatedCloseTime;
+            PrintFormat("[MarketClose] *** PROTECTION TRIGGERED *** %d min (<= %d) to market close at %s. Flattening %s.",
+                remainingMinutesToClose, g_mcMinutes,
+                TimeToString(calculatedCloseTime, TIME_DATE | TIME_MINUTES), _Symbol);
 
-			datetime nextSessionOpenTime = 0;
-			if (MarketCloseGetNextSessionStart(calculatedCloseTime, nextSessionOpenTime))
-				g_mcResumeTime = nextSessionOpenTime;
-			else
-				g_mcResumeTime = calculatedCloseTime + 3600;   // fallback if the broker publishes no next session
+            datetime nextSessionOpenTime = 0;
+            if (MarketCloseGetNextSessionStart(calculatedCloseTime, nextSessionOpenTime))
+                g_mcResumeTime = nextSessionOpenTime;
+            else
+                g_mcResumeTime = calculatedCloseTime + 3600;   // fallback if the broker publishes no next session
 
-			g_mcBlockTrading = true;
-			PrintFormat("[MarketClose] New entries blocked until the next trading session opens at %s (server time).",
-				TimeToString(g_mcResumeTime, TIME_DATE | TIME_MINUTES));
-		}
-		else
-			g_mcBlockTrading = true;   // stay blocked for the whole window
+            g_mcBlockTrading = true;
+            PrintFormat("[MarketClose] New entries blocked until the next trading session opens at %s (server time).",
+                TimeToString(g_mcResumeTime, TIME_DATE | TIME_MINUTES));
+        }
+        else
+            g_mcBlockTrading = true;   // stay blocked for the whole window
 
-		// Cancel pendings first, then close positions. Retry (max every 3 s) on failures.
-		static datetime lastRetryTime = 0;
-		if (MarketCloseHasExposure() && (isFirstTimeHandlingClose || currentServerTime - lastRetryTime >= 3))
-		{
-			lastRetryTime = currentServerTime;
-			MarketCloseCancelPendingOrders();
-			MarketCloseCloseAllPositions();
-		}
-	}
+        // Cancel pendings first, then close positions. Retry (max every 3 s) on failures.
+        static datetime lastRetryTime = 0;
+        if (MarketCloseHasExposure() && (isFirstTimeHandlingClose || currentServerTime - lastRetryTime >= 3))
+        {
+            lastRetryTime = currentServerTime;
+            MarketCloseCancelPendingOrders();
+            MarketCloseCloseAllPositions();
+        }
+    }
 }
 //+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
