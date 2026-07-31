@@ -755,25 +755,28 @@ void UpdateTradeState()
 					PrintFormat("Session %d Trade 1 hit SL -> Trade 2 now permitted (RR 1:4).", sessionIndex + 1);
 				}
 			}
-			else
+			else if (lastDealReason == DEAL_REASON_TP)
 			{
 				if (InpSkipSecondTradeIfFirstTP)
 				{
 					g_sessions[sessionIndex].haltTrading = true;
-					PrintFormat("Session %d Trade 1 closed (non-SL) -> Session halted.", sessionIndex + 1);
+					PrintFormat("Session %d Trade 1 hit TP -> Session halted (InpSkipSecondTradeIfFirstTP = true).", sessionIndex + 1);
 				}
 				else
 				{
-					PrintFormat("Session %d Trade 1 closed (TP/non-SL) -> Trade 2 permitted.", sessionIndex + 1);
+					PrintFormat("Session %d Trade 1 hit TP -> Trade 2 permitted (RR 1:4).", sessionIndex + 1);
 				}
 			}
-		}
-		else
-			if (g_sessions[sessionIndex].tradesToday >= 2)
+			else // Manual close or other close reasons
 			{
-				g_sessions[sessionIndex].haltTrading = true;
-				PrintFormat("Session %d Trade 2 closed -> Session halted.", sessionIndex + 1);
+				PrintFormat("Session %d Trade 1 closed manually/other (reason %d) -> Trade 2 permitted (RR 1:4).", sessionIndex + 1, lastDealReason);
 			}
+		}
+		else if (g_sessions[sessionIndex].tradesToday >= 2)
+		{
+			g_sessions[sessionIndex].haltTrading = true;
+			PrintFormat("Session %d Trade 2 closed -> Session halted.", sessionIndex + 1);
+		}
 	}
 }
 

@@ -142,8 +142,11 @@ flowchart TD
 - **Trade-management logic:**
   - `tradesToday == 0` → RR 1:2.
   - `tradesToday == 1` and `trade1HitSL` → RR 1:4 (second trade allowed).
-  - `tradesToday == 1` and TP/manual close with `InpSkipSecondTradeIfFirstTP` → halt.
-  - `tradesToday >= 2` → halt.
+  - `tradesToday == 1` and TP with `InpSkipSecondTradeIfFirstTP` → halt.
+  - `tradesToday == 1` and manual close with `InpSkipSecondTradeIfFirstTP` → RR 1:4 (second trade allowed)
+  - `tradesToday >= 2` → halt. 
+
+
 
 ### 3.5 Execution Engine — `ExecuteTrade(...)` and `CalcLots(...)`
 
