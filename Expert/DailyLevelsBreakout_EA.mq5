@@ -27,9 +27,17 @@ enum ENUM_UPDATE_MODE
    UPDATE_MAIN_HL = 0  // Update Main High and Low
   };
 
+//--- Entry mode enum
+enum ENUM_ENTRY_MODE
+  {
+   ENTRY_MODE_1 = 1,   // EntryMode = 1 (DMT)
+   ENTRY_MODE_2 = 2,   // EntryMode = 2 (Breakout Entry)
+   ENTRY_MODE_3 = 3    // EntryMode = 3 (Breakout Entry & Candle Close Confirmation)
+  };
+
 //=== Inputs =========================================================
 input group "=== Daily Level Detection ==="
-input int                    InpLookbackN        = 15;         // Lookback Candles 'N'
+input int                    InpLookbackN        = 12;         // Lookback Candles 'N'
 input int                    InpUpdateX          = 3;          // Update Candle Threshold 'X' (Method 2)
 input ENUM_DETECTION_METHOD  InpMethod           = METHOD_1;   // Detection Method
 input ENUM_UPDATE_MODE       InpUpdateMode       = UPDATE_MAIN_HL; // Update Mode (Method 2)
@@ -74,6 +82,8 @@ input int                InpBtnWidth         = 120;               // Button Widt
 input int                InpBtnHeight        = 30;                // Button Height (pixels)
 
 input group "=== Trade Execution ==="
+input ENUM_ENTRY_MODE        InpEntryMode        = ENTRY_MODE_1; // Trade Entry Mode
+input bool                   InpSkipSecondTradeIfFirstTP = true; // Skip second trade if first reaches TP
 input double                 InpSLBufferPoints   = 50.0;       // SL Buffer (points)
 input double                 InpTPBufferPoints   = 50.0;       // TP Buffer (points)
 input bool                   InpUseRiskPercent   = true;       // Use risk % sizing (else fixed lot)
@@ -116,13 +126,14 @@ struct SessionData
    int               tradesToday;
    bool              trade1HitSL;
    bool              haltTrading;
+
+   // Breakout Direction Tracking Locks
+   bool              buyTriggered;
+   bool              sellTriggered;
   };
 
 SessionData g_sessions[4];
 
-//+------------------------------------------------------------------+
-//| Initialization                                                   |
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
 //| Initialization                                                   |
 //+------------------------------------------------------------------+
@@ -205,6 +216,16 @@ void OnTick()
 // Continuous trade state monitor (instantly catch SL/TP closes)
    UpdateTradeState();
 
+// For EntryMode 2 (Breakout Entry), evaluate on every tick after Reference Time
+   if(InpEntryMode == ENTRY_MODE_2)
+     {
+      for(int i = 0; i < 4; i++)
+        {
+         if(IsSessionActiveForTrading(i))
+            CheckEntrySignal(i);
+        }
+     }
+
    if(!IsNewBar())
       return;
 
@@ -212,11 +233,14 @@ void OnTick()
    for(int i = 0; i < 4; i++)
       UpdateSessionLevels(i);
 
-// 2. Evaluate entry signals for active sessions
-   for(int i = 0; i < 4; i++)
+// 2. Evaluate entry signals for active sessions (EntryMode 1 and EntryMode 3)
+   if(InpEntryMode != ENTRY_MODE_2)
      {
-      if(IsSessionActiveForTrading(i))
-         CheckEntrySignal(i);
+      for(int i = 0; i < 4; i++)
+        {
+         if(IsSessionActiveForTrading(i))
+            CheckEntrySignal(i);
+        }
      }
   }
 
@@ -349,6 +373,9 @@ void UpdateSessionLevels(int sIdx)
    g_sessions[sIdx].trade1HitSL   = false;
    g_sessions[sIdx].haltTrading   = false;
 
+   g_sessions[sIdx].buyTriggered  = false;
+   g_sessions[sIdx].sellTriggered = false;
+
    if(InpMethod == METHOD_3)
       g_sessions[sIdx].lineStartTime = g_sessions[sIdx].refBarTime;
    else
@@ -373,28 +400,68 @@ void CheckEntrySignal(int sIdx)
    if(HasOpenPositionForSession(sIdx))
       return;
 
-// Breakout candle must have formed ON OR AFTER the session reference candle
-   datetime c1time = iTime(_Symbol, _Period, 1);
-   if(c1time < g_sessions[sIdx].refBarTime)
-      return;
+   bool buySignal  = false;
+   bool sellSignal = false;
+   double h1 = 0.0, l1 = 0.0;
 
-   double o1 = iOpen(_Symbol, _Period, 1);
-   double h1 = iHigh(_Symbol, _Period, 1);
-   double l1 = iLow(_Symbol, _Period, 1);
-   double c1 = iClose(_Symbol, _Period, 1);
+   if(InpEntryMode == ENTRY_MODE_2)
+     {
+      // EntryMode = 2 (Breakout Entry)
+      datetime now = TimeCurrent();
+      if(now < g_sessions[sIdx].refBarTime)
+         return;
 
-   double rangeCandle = h1 - l1;
-   double rangeLevels = g_sessions[sIdx].definedHigh - g_sessions[sIdx].definedLow;
+      MqlTick tick;
+      if(!SymbolInfoTick(_Symbol, tick))
+         return;
 
-// Quality Filters
-   bool rangeOK  = (rangeCandle < rangeLevels);
-   bool originOK = (o1 >= g_sessions[sIdx].definedLow && o1 <= g_sessions[sIdx].definedHigh);
-   if(!rangeOK || !originOK)
-      return;
+      if(tick.bid > g_sessions[sIdx].definedHigh && !g_sessions[sIdx].buyTriggered)
+         buySignal = true;
 
-// Breakout Signals
-   bool buySignal  = (c1 > g_sessions[sIdx].definedHigh) && ((c1 - g_sessions[sIdx].definedHigh) > (h1 - c1));
-   bool sellSignal = (c1 < g_sessions[sIdx].definedLow) && ((g_sessions[sIdx].definedLow - c1) > (c1 - l1));
+      if(tick.bid < g_sessions[sIdx].definedLow && !g_sessions[sIdx].sellTriggered)
+         sellSignal = true;
+     }
+   else
+     {
+      // Breakout candle must have formed ON OR AFTER the session reference candle
+      datetime c1time = iTime(_Symbol, _Period, 1);
+      if(c1time < g_sessions[sIdx].refBarTime)
+         return;
+
+      double o1 = iOpen(_Symbol, _Period, 1);
+      h1        = iHigh(_Symbol, _Period, 1);
+      l1        = iLow(_Symbol, _Period, 1);
+      double c1 = iClose(_Symbol, _Period, 1);
+
+      if(InpEntryMode == ENTRY_MODE_1)
+        {
+         // EntryMode = 1 (Current Behavior)
+         double rangeCandle = h1 - l1;
+         double rangeLevels = g_sessions[sIdx].definedHigh - g_sessions[sIdx].definedLow;
+
+         // Quality Filters
+         bool rangeOK  = (rangeCandle < rangeLevels);
+         bool originOK = (o1 >= g_sessions[sIdx].definedLow && o1 <= g_sessions[sIdx].definedHigh);
+         if(!rangeOK || !originOK)
+            return;
+
+         // Breakout Signals
+         if((c1 > g_sessions[sIdx].definedHigh) && ((c1 - g_sessions[sIdx].definedHigh) > (h1 - c1)) && !g_sessions[sIdx].buyTriggered)
+            buySignal = true;
+
+         if((c1 < g_sessions[sIdx].definedLow) && ((g_sessions[sIdx].definedLow - c1) > (c1 - l1)) && !g_sessions[sIdx].sellTriggered)
+            sellSignal = true;
+        }
+      else if(InpEntryMode == ENTRY_MODE_3)
+        {
+         // EntryMode = 3 (Candle Close Confirmation)
+         if((c1 > g_sessions[sIdx].definedHigh) && !g_sessions[sIdx].buyTriggered)
+            buySignal = true;
+
+         if((c1 < g_sessions[sIdx].definedLow) && !g_sessions[sIdx].sellTriggered)
+            sellSignal = true;
+        }
+     }
 
    if(!buySignal && !sellSignal)
       return;
@@ -406,33 +473,33 @@ void CheckEntrySignal(int sIdx)
       return;
      }
 
-   if(g_sessions[sIdx].tradesToday == 1 && !g_sessions[sIdx].trade1HitSL)
+   if(g_sessions[sIdx].tradesToday == 1)
      {
-      // Trade 1 closed via TP or manual close -> Halt trading for session
-      g_sessions[sIdx].haltTrading = true;
-      return;
+      if(InpSkipSecondTradeIfFirstTP && !g_sessions[sIdx].trade1HitSL)
+        {
+         // Trade 1 closed via TP or manual close -> Halt trading for session
+         g_sessions[sIdx].haltTrading = true;
+         return;
+        }
      }
 
    double rr = (g_sessions[sIdx].tradesToday == 0) ? 2.0 : 4.0;
 
    if(buySignal)
-      ExecuteTrade(ORDER_TYPE_BUY, rr, sIdx);
-   else
-      ExecuteTrade(ORDER_TYPE_SELL, rr, sIdx);
+      ExecuteTrade(ORDER_TYPE_BUY, rr, sIdx, h1, l1);
+   else if(sellSignal)
+      ExecuteTrade(ORDER_TYPE_SELL, rr, sIdx, h1, l1);
   }
 //+------------------------------------------------------------------+
 
 //+------------------------------------------------------------------+
 //| Execute Market Order                                             |
 //+------------------------------------------------------------------+
-void ExecuteTrade(const ENUM_ORDER_TYPE type, const double rr, int sIdx)
+void ExecuteTrade(const ENUM_ORDER_TYPE type, const double rr, int sIdx, double h1 = 0.0, double l1 = 0.0)
   {
    double point = _Point;
    double slBuf = InpSLBufferPoints * point;
    double tpBuf = InpTPBufferPoints * point;
-
-   double c2high = iHigh(_Symbol, _Period, 2);
-   double c2low  = iLow(_Symbol, _Period, 2);
 
    MqlTick tick;
    if(!SymbolInfoTick(_Symbol, tick))
@@ -443,9 +510,25 @@ void ExecuteTrade(const ENUM_ORDER_TYPE type, const double rr, int sIdx)
    if(type == ORDER_TYPE_BUY)
      {
       entry = tick.ask;
-      sl    = c2low - slBuf;
+
+      if(InpEntryMode == ENTRY_MODE_1)
+        {
+         double c2low = iLow(_Symbol, _Period, 2);
+         sl = c2low - slBuf;
+        }
+      else if(InpEntryMode == ENTRY_MODE_2)
+        {
+         sl = g_sessions[sIdx].definedLow - slBuf;
+        }
+      else // ENTRY_MODE_3
+        {
+         double candleRange = h1 - l1;
+         sl = entry - candleRange - slBuf;
+        }
+
       if(entry - sl <= 0)
          return;
+
       tp = entry + ((entry - sl) * rr) - tpBuf;
       if(tp <= entry)
          return;
@@ -453,9 +536,25 @@ void ExecuteTrade(const ENUM_ORDER_TYPE type, const double rr, int sIdx)
    else
      {
       entry = tick.bid;
-      sl    = c2high + slBuf;
+
+      if(InpEntryMode == ENTRY_MODE_1)
+        {
+         double c2high = iHigh(_Symbol, _Period, 2);
+         sl = c2high + slBuf;
+        }
+      else if(InpEntryMode == ENTRY_MODE_2)
+        {
+         sl = g_sessions[sIdx].definedHigh + slBuf;
+        }
+      else // ENTRY_MODE_3
+        {
+         double candleRange = h1 - l1;
+         sl = entry + candleRange + slBuf;
+        }
+
       if(sl - entry <= 0)
          return;
+
       tp = entry - ((sl - entry) * rr) + tpBuf;
       if(tp >= entry)
          return;
@@ -494,6 +593,9 @@ void ExecuteTrade(const ENUM_ORDER_TYPE type, const double rr, int sIdx)
    if(ok)
      {
       g_sessions[sIdx].tradesToday++;
+      if(type == ORDER_TYPE_BUY) g_sessions[sIdx].buyTriggered = true;
+      if(type == ORDER_TYPE_SELL) g_sessions[sIdx].sellTriggered = true;
+
       PrintFormat("Session %d Trade %d opened: %s lots=%.2f SL=%.5f TP=%.5f (RR 1:%.0f)",
                   sIdx + 1, g_sessions[sIdx].tradesToday, (type == ORDER_TYPE_BUY ? "BUY" : "SELL"), lots, sl, tp, rr);
      }
@@ -554,8 +656,15 @@ void UpdateTradeState()
            }
          else
            {
-            g_sessions[s].haltTrading = true;
-            PrintFormat("Session %d Trade 1 closed (non-SL) -> Session halted.", s + 1);
+            if(InpSkipSecondTradeIfFirstTP)
+              {
+               g_sessions[s].haltTrading = true;
+               PrintFormat("Session %d Trade 1 closed (non-SL) -> Session halted.", s + 1);
+              }
+            else
+              {
+               PrintFormat("Session %d Trade 1 closed (TP/non-SL) -> Trade 2 permitted.", s + 1);
+              }
            }
         }
       else
