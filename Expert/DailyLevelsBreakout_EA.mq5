@@ -113,6 +113,10 @@ datetime  g_lastBarTime = 0;
 datetime  g_lastChartDay = 0;
 const string OBJ_PREFIX = "DLB_";
 
+//--- Session ON/OFF toggle buttons ---------------------------------
+const string BTN_SESSION_PREFIX = OBJ_PREFIX + "SessBtn";
+bool g_sessionButtonState[4] = { true, true, true, true };  // effective session enable flags (button-driven)
+
 //--- Market-Close Protection state ---------------------------------
 bool     g_mcBlockTrading = false;  // new entries blocked until next trading session
 datetime g_mcResumeTime = 0;      // server time at which trading may resume
@@ -226,6 +230,16 @@ int OnInit()
     g_sessions[3].endH = InpS4_EndH;
     g_sessions[3].endM = InpS4_EndM;
     g_sessions[3].lineColor = InpS4_Color;
+
+    // Session ON/OFF buttons: seed their state from the input parameters,
+    // then let the buttons drive g_sessions[].enable from here on.
+    g_sessionButtonState[0] = InpS1_Enable;
+    g_sessionButtonState[1] = InpS2_Enable;
+    g_sessionButtonState[2] = InpS3_Enable;
+    g_sessionButtonState[3] = InpS4_Enable;
+    for (int sessionIndex = 0; sessionIndex < 4; sessionIndex++)
+        g_sessions[sessionIndex].enable = g_sessionButtonState[sessionIndex];
+    CreateSessionButtons();
 
     for (int sessionIndex = 0; sessionIndex < 4; sessionIndex++)
     {
@@ -985,7 +999,7 @@ void OnChartEvent(const int id,
     // 1. Handle Object Dragging (Manual High/Low Adjustments)
     if (id == CHARTEVENT_OBJECT_DRAG || id == CHARTEVENT_OBJECT_CHANGE)
     {
-        if (StringFind(sparam, OBJ_PREFIX) == 0 && sparam != BTN_RESET_NAME)
+        if (StringFind(sparam, OBJ_PREFIX) == 0 && sparam != BTN_RESET_NAME && !IsSessionToggleButton(sparam))
         {
             UpdateLevelsFromChartLines(sparam);
         }
@@ -1000,6 +1014,13 @@ void OnChartEvent(const int id,
 
             // Release the button state (pop it back up)
             ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_STATE, false);
+        }
+
+        // Session ON/OFF toggle buttons
+        int clickedSession = SessionIndexFromButton(sparam);
+        if (clickedSession >= 0)
+        {
+            ToggleSessionEnabled(clickedSession);
         }
     }
 }
@@ -1104,6 +1125,120 @@ void CreateResetButton()
     ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_HIDDEN, true);
     ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_SELECTABLE, false);
 
+    ChartRedraw(0);
+}
+
+//+------------------------------------------------------------------+
+//| Session toggle buttons: helpers                                  |
+//+------------------------------------------------------------------+
+string SessionButtonName(int sessionIndex)
+{
+    return BTN_SESSION_PREFIX + IntegerToString(sessionIndex + 1);
+}
+
+bool IsSessionToggleButton(const string objectName)
+{
+    return (SessionIndexFromButton(objectName) >= 0);
+}
+
+int SessionIndexFromButton(const string objectName)
+{
+    for (int sessionIndex = 0; sessionIndex < 4; sessionIndex++)
+        if (objectName == SessionButtonName(sessionIndex))
+            return sessionIndex;
+    return -1;
+}
+
+//+------------------------------------------------------------------+
+//| Create the four Session ON/OFF buttons under "Reset Levels"      |
+//+------------------------------------------------------------------+
+void CreateSessionButtons()
+{
+    int verticalGap = 4;                       // spacing between buttons (pixels)
+    bool anchoredToBottom = (InpBtnCorner == CORNER_LEFT_LOWER || InpBtnCorner == CORNER_RIGHT_LOWER);
+
+    for (int sessionIndex = 0; sessionIndex < 4; sessionIndex++)
+    {
+        string buttonName = SessionButtonName(sessionIndex);
+        if (ObjectFind(0, buttonName) < 0)
+            ObjectCreate(0, buttonName, OBJ_BUTTON, 0, 0, 0);
+
+        // Stack the buttons directly below the Reset Levels button.
+        // For bottom-anchored corners, "below" means a smaller Y distance.
+        int offset = (sessionIndex + 1) * (InpBtnHeight + verticalGap);
+        int yDistance = anchoredToBottom ? (InpBtnY - offset) : (InpBtnY + offset);
+
+        ObjectSetInteger(0, buttonName, OBJPROP_CORNER, InpBtnCorner);
+        ObjectSetInteger(0, buttonName, OBJPROP_XDISTANCE, InpBtnX);
+        ObjectSetInteger(0, buttonName, OBJPROP_YDISTANCE, yDistance);
+        ObjectSetInteger(0, buttonName, OBJPROP_XSIZE, InpBtnWidth);
+        ObjectSetInteger(0, buttonName, OBJPROP_YSIZE, InpBtnHeight);
+        ObjectSetInteger(0, buttonName, OBJPROP_BORDER_COLOR, clrBlack);
+        ObjectSetInteger(0, buttonName, OBJPROP_COLOR, clrWhite);
+        ObjectSetInteger(0, buttonName, OBJPROP_HIDDEN, true);
+        ObjectSetInteger(0, buttonName, OBJPROP_SELECTABLE, false);
+
+        RefreshSessionButton(sessionIndex);
+    }
+
+    ChartRedraw(0);
+}
+
+//+------------------------------------------------------------------+
+//| Sync a session button's look with the effective enable state     |
+//+------------------------------------------------------------------+
+void RefreshSessionButton(int sessionIndex)
+{
+    string buttonName = SessionButtonName(sessionIndex);
+    if (ObjectFind(0, buttonName) < 0)
+        return;
+
+    bool isEnabled = g_sessionButtonState[sessionIndex];
+
+    ObjectSetString(0, buttonName, OBJPROP_TEXT,
+        "Session " + IntegerToString(sessionIndex + 1) + (isEnabled ? ": ON" : ": OFF"));
+    ObjectSetInteger(0, buttonName, OBJPROP_BGCOLOR, isEnabled ? clrSeaGreen : clrFireBrick);
+    ObjectSetInteger(0, buttonName, OBJPROP_COLOR, clrWhite);
+    ObjectSetInteger(0, buttonName, OBJPROP_STATE, false);   // never stay visually pressed
+}
+
+//+------------------------------------------------------------------+
+//| Toggle a session ON/OFF from its chart button                    |
+//+------------------------------------------------------------------+
+void ToggleSessionEnabled(int sessionIndex)
+{
+    SetSessionEnabled(sessionIndex, !g_sessionButtonState[sessionIndex]);
+}
+
+//+------------------------------------------------------------------+
+//| Apply a session enable state (button == effective EA state)      |
+//+------------------------------------------------------------------+
+void SetSessionEnabled(int sessionIndex, bool isEnabled)
+{
+    if (sessionIndex < 0 || sessionIndex > 3)
+        return;
+
+    g_sessionButtonState[sessionIndex] = isEnabled;
+
+    // The EA reads g_sessions[].enable everywhere, so the button drives it directly.
+    g_sessions[sessionIndex].enable = isEnabled;
+
+    if (!isEnabled)
+    {
+        // Behave exactly as if the input parameter were false: no levels, no trades.
+        g_sessions[sessionIndex].levelsSet = false;
+        g_sessions[sessionIndex].levelsDay = 0;   // allow a fresh calculation if re-enabled later today
+        DeleteSessionObjects(sessionIndex);
+    }
+    else
+    {
+        // Re-enabled: recalculate and redraw immediately, without waiting for a new bar.
+        g_sessions[sessionIndex].levelsDay = 0;
+        UpdateSessionLevels(sessionIndex);
+    }
+
+    RefreshSessionButton(sessionIndex);
+    PrintFormat("[User Action] Session %d %s via chart button.", sessionIndex + 1, isEnabled ? "ENABLED" : "DISABLED");
     ChartRedraw(0);
 }
 
