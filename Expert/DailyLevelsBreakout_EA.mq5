@@ -129,6 +129,10 @@ ENUM_TIMEFRAMES g_highAndLowTimeframeOptions[HLTF_OPTION_COUNT] = { PERIOD_CURRE
 string                g_highAndLowTimeframeLabels[HLTF_OPTION_COUNT] = { "Current", "M1", "M5", "M15", "H1" };
 int g_highAndLowTimeframeIndex = 0;                      // 0 = current chart timeframe
 
+//--- Line Time Extension / Drag UI Checkbox -----------------------
+const string BTN_EDIT_TIME_NAME = OBJ_PREFIX + "EditTimeBtn";
+bool g_allowLineTimeEdit = false;                         // false = lock start/end time, true = allow dragging endpoints
+
 //--- Market-Close Protection state ---------------------------------
 bool     g_mcBlockTrading = false;  // new entries blocked until next trading session
 datetime g_mcResumeTime = 0;      // server time at which trading may resume
@@ -258,6 +262,9 @@ int OnInit()
 
     // High/Low timeframe selector button (placed below all other buttons)
     CreateHighAndLowTimeframeButton();
+
+    // Line Time Edit checkbox button
+    CreateEditTimeButton();
 
     for (int sessionIndex = 0; sessionIndex < 4; sessionIndex++)
     {
@@ -1021,7 +1028,7 @@ void OnChartEvent(const int id,
     // 1. Handle Object Dragging (Manual High/Low Adjustments)
     if (id == CHARTEVENT_OBJECT_DRAG || id == CHARTEVENT_OBJECT_CHANGE)
     {
-        if (StringFind(sparam, OBJ_PREFIX) == 0 && sparam != BTN_RESET_NAME && sparam != BTN_HLTF_NAME && !IsSessionToggleButton(sparam))
+        if (StringFind(sparam, OBJ_PREFIX) == 0 && sparam != BTN_RESET_NAME && sparam != BTN_HLTF_NAME && sparam != BTN_EDIT_TIME_NAME && !IsSessionToggleButton(sparam))
         {
             UpdateLevelsFromChartLines(sparam);
         }
@@ -1042,6 +1049,12 @@ void OnChartEvent(const int id,
         if (sparam == BTN_HLTF_NAME)
         {
             CycleHighLowTimeframe();
+        }
+
+        // Checkbox button for line time edit
+        if (sparam == BTN_EDIT_TIME_NAME)
+        {
+            ToggleEditTime();
         }
 
         // Session ON/OFF toggle buttons
@@ -1098,9 +1111,38 @@ void UpdateLevelsFromChartLines(const string objectName)
             ObjectSetDouble(0, objectName, OBJPROP_PRICE, 0, primaryAnchorPrice);
             ObjectSetDouble(0, objectName, OBJPROP_PRICE, 1, primaryAnchorPrice);
 
-            // 3. ENFORCE TIME ANCHOR LOCK: Prevent dragging start/end points horizontally
-            ObjectSetInteger(0, objectName, OBJPROP_TIME, 0, g_sessions[sessionIndex].lineStartTime);
-            ObjectSetInteger(0, objectName, OBJPROP_TIME, 1, g_sessions[sessionIndex].lineEndTime);
+            // 3. ENFORCE TIME ANCHOR LOCK: Prevent dragging start/end points horizontally unless allowed by UI option
+            if (!g_allowLineTimeEdit)
+            {
+                ObjectSetInteger(0, objectName, OBJPROP_TIME, 0, g_sessions[sessionIndex].lineStartTime);
+                ObjectSetInteger(0, objectName, OBJPROP_TIME, 1, g_sessions[sessionIndex].lineEndTime);
+            }
+            else
+            {
+                datetime newStartTime = (datetime)ObjectGetInteger(0, objectName, OBJPROP_TIME, 0);
+                datetime newEndTime = (datetime)ObjectGetInteger(0, objectName, OBJPROP_TIME, 1);
+
+                if (newStartTime > 0 && newEndTime > 0 && newStartTime < newEndTime)
+                {
+                    g_sessions[sessionIndex].lineStartTime = newStartTime;
+                    g_sessions[sessionIndex].lineEndTime = newEndTime;
+
+                    string dateString = TimeToString(g_sessions[sessionIndex].levelsDay, TIME_DATE);
+                    string highLineName = sessionPrefix + "High_" + dateString;
+                    string lowLineName = sessionPrefix + "Low_" + dateString;
+
+                    if (ObjectFind(0, highLineName) >= 0)
+                    {
+                        ObjectSetInteger(0, highLineName, OBJPROP_TIME, 0, newStartTime);
+                        ObjectSetInteger(0, highLineName, OBJPROP_TIME, 1, newEndTime);
+                    }
+                    if (ObjectFind(0, lowLineName) >= 0)
+                    {
+                        ObjectSetInteger(0, lowLineName, OBJPROP_TIME, 0, newStartTime);
+                        ObjectSetInteger(0, lowLineName, OBJPROP_TIME, 1, newEndTime);
+                    }
+                }
+            }
 
             // 4. Update internal session levels and their corresponding text label
             string dateString = TimeToString(g_sessions[sessionIndex].levelsDay, TIME_DATE);
@@ -1825,5 +1867,60 @@ void RecalculateLevelsForHighAndLowTimeframeChange()
         g_sessions[sessionIndex].buyTriggered = savedBuyTriggered;
         g_sessions[sessionIndex].sellTriggered = savedSellTriggered;
     }
+}
+//+------------------------------------------------------------------+
+
+//+------------------------------------------------------------------+
+//| Create UI Checkbox for editing line start/end time               |
+//+------------------------------------------------------------------+
+void CreateEditTimeButton()
+{
+    int verticalGap = 4;
+    bool anchoredToBottom = (InpBtnCorner == CORNER_LEFT_LOWER || InpBtnCorner == CORNER_RIGHT_LOWER);
+
+    if (ObjectFind(0, BTN_EDIT_TIME_NAME) < 0)
+        ObjectCreate(0, BTN_EDIT_TIME_NAME, OBJ_BUTTON, 0, 0, 0);
+
+    // Positioned at slot 6 (below High/Low TF button)
+    int offset = 6 * (InpBtnHeight + verticalGap);
+    int yDistance = anchoredToBottom ? (InpBtnY - offset) : (InpBtnY + offset);
+
+    ObjectSetInteger(0, BTN_EDIT_TIME_NAME, OBJPROP_CORNER, InpBtnCorner);
+    ObjectSetInteger(0, BTN_EDIT_TIME_NAME, OBJPROP_XDISTANCE, InpBtnX);
+    ObjectSetInteger(0, BTN_EDIT_TIME_NAME, OBJPROP_YDISTANCE, yDistance);
+    ObjectSetInteger(0, BTN_EDIT_TIME_NAME, OBJPROP_XSIZE, InpBtnWidth);
+    ObjectSetInteger(0, BTN_EDIT_TIME_NAME, OBJPROP_YSIZE, InpBtnHeight);
+    ObjectSetInteger(0, BTN_EDIT_TIME_NAME, OBJPROP_BORDER_COLOR, clrBlack);
+    ObjectSetInteger(0, BTN_EDIT_TIME_NAME, OBJPROP_HIDDEN, true);
+    ObjectSetInteger(0, BTN_EDIT_TIME_NAME, OBJPROP_SELECTABLE, false);
+
+    RefreshEditTimeButton();
+    ChartRedraw(0);
+}
+
+//+------------------------------------------------------------------+
+//| Refresh UI Checkbox caption and appearance                       |
+//+------------------------------------------------------------------+
+void RefreshEditTimeButton()
+{
+    if (ObjectFind(0, BTN_EDIT_TIME_NAME) < 0)
+        return;
+
+    string btnText = g_allowLineTimeEdit ? "[x].Edit LineTime" : "[ ].Edit LineTime";
+    ObjectSetString(0, BTN_EDIT_TIME_NAME, OBJPROP_TEXT, btnText);
+    ObjectSetInteger(0, BTN_EDIT_TIME_NAME, OBJPROP_BGCOLOR, g_allowLineTimeEdit ? clrDarkOrange : clrSlateGray);
+    ObjectSetInteger(0, BTN_EDIT_TIME_NAME, OBJPROP_COLOR, clrWhite);
+    ObjectSetInteger(0, BTN_EDIT_TIME_NAME, OBJPROP_STATE, false);
+}
+
+//+------------------------------------------------------------------+
+//| Toggle Line Time Edit state via chart checkbox                   |
+//+------------------------------------------------------------------+
+void ToggleEditTime()
+{
+    g_allowLineTimeEdit = !g_allowLineTimeEdit;
+    RefreshEditTimeButton();
+    PrintFormat("[User Action] Line Time Editing %s via chart checkbox.", g_allowLineTimeEdit ? "ENABLED" : "DISABLED");
+    ChartRedraw(0);
 }
 //+------------------------------------------------------------------+
