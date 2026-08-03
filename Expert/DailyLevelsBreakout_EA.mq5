@@ -117,6 +117,18 @@ const string OBJ_PREFIX = "DLB_";
 const string BTN_SESSION_PREFIX = OBJ_PREFIX + "SessBtn";
 bool g_sessionButtonState[4] = { true, true, true, true };  // effective session enable flags (button-driven)
 
+//--- High/Low source timeframe selector button --------------------
+//  Cycles the timeframe used ONLY as the data source for High/Low
+//  detection. All other logic (BOS, breakout, entries, SL/TP,
+//  sessions) stays untouched and simply consumes the resulting
+//  High/Low values.
+const string BTN_HLTF_NAME = OBJ_PREFIX + "HLTFBtn";
+const string GV_HLTF_PREFIX = "DLB_HLTF_";      // terminal global variable (persists selection)
+#define HLTF_OPTION_COUNT 5
+ENUM_TIMEFRAMES g_highAndLowTimeframeOptions[HLTF_OPTION_COUNT] = { PERIOD_CURRENT, PERIOD_M1, PERIOD_M5, PERIOD_M15, PERIOD_H1 };
+string                g_highAndLowTimeframeLabels[HLTF_OPTION_COUNT] = { "Current", "M1", "M5", "M15", "H1" };
+int g_highAndLowTimeframeIndex = 0;                      // 0 = current chart timeframe
+
 //--- Market-Close Protection state ---------------------------------
 bool     g_mcBlockTrading = false;  // new entries blocked until next trading session
 datetime g_mcResumeTime = 0;      // server time at which trading may resume
@@ -205,6 +217,9 @@ int OnInit()
     // Create Reset Button on Chart
     CreateResetButton();
 
+    // Restore the last selected High/Low timeframe (if it was ever saved)
+    LoadHighAndLowTimeframeSelection();
+
     // Initialize Session Array
     g_sessions[0].enable = InpS1_Enable;
     g_sessions[0].refH = InpS1_RefH;
@@ -240,6 +255,9 @@ int OnInit()
     for (int sessionIndex = 0; sessionIndex < 4; sessionIndex++)
         g_sessions[sessionIndex].enable = g_sessionButtonState[sessionIndex];
     CreateSessionButtons();
+
+    // High/Low timeframe selector button (placed below all other buttons)
+    CreateHighAndLowTimeframeButton();
 
     for (int sessionIndex = 0; sessionIndex < 4; sessionIndex++)
     {
@@ -357,8 +375,11 @@ void UpdateSessionLevels(int sessionIndex)
     if (g_sessions[sessionIndex].levelsDay == startOfDayTime)
         return; // Already calculated for today
 
+    // High/Low data source timeframe (chart timeframe unless the user picked another one)
+    ENUM_TIMEFRAMES highAndLowTimeframe = HighLowTimeframe();
+
     // Shift of reference candle
-    int referenceCandleShift = iBarShift(_Symbol, _Period, referenceTime, false);
+    int referenceCandleShift = iBarShift(_Symbol, highAndLowTimeframe, referenceTime, false);
     if (referenceCandleShift < 0)
         return;
 
@@ -366,27 +387,27 @@ void UpdateSessionLevels(int sessionIndex)
     if (InpMethod == METHOD_3 && referenceCandleShift == 0)
         return;
 
-    if (Bars(_Symbol, _Period) < referenceCandleShift + InpLookbackN + 2)
+    if (Bars(_Symbol, highAndLowTimeframe) < referenceCandleShift + InpLookbackN + 2)
         return;
 
     double calculatedHigh = 0.0, calculatedLow = 0.0;
 
     if (InpMethod == METHOD_3)
     {
-        calculatedHigh = iHigh(_Symbol, _Period, referenceCandleShift);
-        calculatedLow = iLow(_Symbol, _Period, referenceCandleShift);
+        calculatedHigh = iHigh(_Symbol, highAndLowTimeframe, referenceCandleShift);
+        calculatedLow = iLow(_Symbol, highAndLowTimeframe, referenceCandleShift);
     }
     else
     {
         int windowStartShift = referenceCandleShift + 1;
-        int highestCandleShift = iHighest(_Symbol, _Period, MODE_HIGH, InpLookbackN, windowStartShift);
-        int lowestCandleShift = iLowest(_Symbol, _Period, MODE_LOW, InpLookbackN, windowStartShift);
+        int highestCandleShift = iHighest(_Symbol, highAndLowTimeframe, MODE_HIGH, InpLookbackN, windowStartShift);
+        int lowestCandleShift = iLowest(_Symbol, highAndLowTimeframe, MODE_LOW, InpLookbackN, windowStartShift);
 
         if (highestCandleShift < 0 || lowestCandleShift < 0)
             return;
 
-        calculatedHigh = iHigh(_Symbol, _Period, highestCandleShift);
-        calculatedLow = iLow(_Symbol, _Period, lowestCandleShift);
+        calculatedHigh = iHigh(_Symbol, highAndLowTimeframe, highestCandleShift);
+        calculatedLow = iLow(_Symbol, highAndLowTimeframe, lowestCandleShift);
 
         if (InpMethod == METHOD_2 && InpUpdateMode == UPDATE_MAIN_HL)
         {
@@ -395,14 +416,14 @@ void UpdateSessionLevels(int sessionIndex)
                 int candlesFromHighest = highestCandleShift - windowStartShift + 1;
                 int bearishCandleCount = 0;
                 for (int candleShift = windowStartShift; candleShift <= highestCandleShift; candleShift++)
-                    if (iClose(_Symbol, _Period, candleShift) < iOpen(_Symbol, _Period, candleShift))
+                    if (iClose(_Symbol, highAndLowTimeframe, candleShift) < iOpen(_Symbol, highAndLowTimeframe, candleShift))
                         bearishCandleCount++;
 
                 if (bearishCandleCount >= InpUpdateX)
                 {
-                    int newLowestCandleShift = iLowest(_Symbol, _Period, MODE_LOW, candlesFromHighest, windowStartShift);
+                    int newLowestCandleShift = iLowest(_Symbol, highAndLowTimeframe, MODE_LOW, candlesFromHighest, windowStartShift);
                     if (newLowestCandleShift >= 0)
-                        calculatedLow = iLow(_Symbol, _Period, newLowestCandleShift);
+                        calculatedLow = iLow(_Symbol, highAndLowTimeframe, newLowestCandleShift);
                 }
             }
             else
@@ -411,14 +432,14 @@ void UpdateSessionLevels(int sessionIndex)
                     int candlesFromLowest = lowestCandleShift - windowStartShift + 1;
                     int bullishCandleCount = 0;
                     for (int candleShift = windowStartShift; candleShift <= lowestCandleShift; candleShift++)
-                        if (iClose(_Symbol, _Period, candleShift) > iOpen(_Symbol, _Period, candleShift))
+                        if (iClose(_Symbol, highAndLowTimeframe, candleShift) > iOpen(_Symbol, highAndLowTimeframe, candleShift))
                             bullishCandleCount++;
 
                     if (bullishCandleCount >= InpUpdateX)
                     {
-                        int newHighestCandleShift = iHighest(_Symbol, _Period, MODE_HIGH, candlesFromLowest, windowStartShift);
+                        int newHighestCandleShift = iHighest(_Symbol, highAndLowTimeframe, MODE_HIGH, candlesFromLowest, windowStartShift);
                         if (newHighestCandleShift >= 0)
-                            calculatedHigh = iHigh(_Symbol, _Period, newHighestCandleShift);
+                            calculatedHigh = iHigh(_Symbol, highAndLowTimeframe, newHighestCandleShift);
                     }
                 }
         }
@@ -441,7 +462,7 @@ void UpdateSessionLevels(int sessionIndex)
 
     g_sessions[sessionIndex].levelsSet = true;
     g_sessions[sessionIndex].levelsDay = startOfDayTime;
-    g_sessions[sessionIndex].refBarTime = iTime(_Symbol, _Period, referenceCandleShift);
+    g_sessions[sessionIndex].refBarTime = iTime(_Symbol, highAndLowTimeframe, referenceCandleShift);
     g_sessions[sessionIndex].tradesToday = 0;
     g_sessions[sessionIndex].trade1HitSL = false;
     g_sessions[sessionIndex].haltTrading = false;
@@ -452,10 +473,11 @@ void UpdateSessionLevels(int sessionIndex)
     if (InpMethod == METHOD_3)
         g_sessions[sessionIndex].lineStartTime = g_sessions[sessionIndex].refBarTime;
     else
-        g_sessions[sessionIndex].lineStartTime = iTime(_Symbol, _Period, referenceCandleShift + InpLookbackN);
+        g_sessions[sessionIndex].lineStartTime = iTime(_Symbol, highAndLowTimeframe, referenceCandleShift + InpLookbackN);
 
-    PrintFormat("[%s] Session %d Levels set (Method %d): High=%.5f  Low=%.5f",
-        TimeToString(startOfDayTime, TIME_DATE), sessionIndex + 1, (int)InpMethod, calculatedHigh, calculatedLow);
+    PrintFormat("[%s] Session %d Levels set (Method %d, HL TF: %s): High=%.5f  Low=%.5f",
+        TimeToString(startOfDayTime, TIME_DATE), sessionIndex + 1, (int)InpMethod,
+        HighLowTimeframeLabel(), calculatedHigh, calculatedLow);
 
     if (InpDrawLevels)
         DrawSessionLevelLines(sessionIndex, startOfDayTime);
@@ -999,7 +1021,7 @@ void OnChartEvent(const int id,
     // 1. Handle Object Dragging (Manual High/Low Adjustments)
     if (id == CHARTEVENT_OBJECT_DRAG || id == CHARTEVENT_OBJECT_CHANGE)
     {
-        if (StringFind(sparam, OBJ_PREFIX) == 0 && sparam != BTN_RESET_NAME && !IsSessionToggleButton(sparam))
+        if (StringFind(sparam, OBJ_PREFIX) == 0 && sparam != BTN_RESET_NAME && sparam != BTN_HLTF_NAME && !IsSessionToggleButton(sparam))
         {
             UpdateLevelsFromChartLines(sparam);
         }
@@ -1014,6 +1036,12 @@ void OnChartEvent(const int id,
 
             // Release the button state (pop it back up)
             ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_STATE, false);
+        }
+
+        // High/Low timeframe selector button
+        if (sparam == BTN_HLTF_NAME)
+        {
+            CycleHighLowTimeframe();
         }
 
         // Session ON/OFF toggle buttons
@@ -1664,4 +1692,138 @@ void ManageMarketCloseProtection()
     }
 }
 //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+
+//+------------------------------------------------------------------+
+//| High/Low timeframe selector: helpers                             |
+//+------------------------------------------------------------------+
+ENUM_TIMEFRAMES HighLowTimeframe()
+{
+    if (g_highAndLowTimeframeIndex <= 0 || g_highAndLowTimeframeIndex >= HLTF_OPTION_COUNT)
+        return((ENUM_TIMEFRAMES)_Period);          // "Current" -> chart timeframe
+    return(g_highAndLowTimeframeOptions[g_highAndLowTimeframeIndex]);
+}
+
+string HighLowTimeframeLabel()
+{
+    if (g_highAndLowTimeframeIndex < 0 || g_highAndLowTimeframeIndex >= HLTF_OPTION_COUNT)
+        return(g_highAndLowTimeframeLabels[0]);
+    return(g_highAndLowTimeframeLabels[g_highAndLowTimeframeIndex]);
+}
+
+string HighAndLowTimeframeGlobalName()
+{
+    // Per symbol + chart timeframe, so each chart remembers its own choice.
+    return(GV_HLTF_PREFIX + _Symbol + "_" + IntegerToString((int)_Period));
+}
+
+void LoadHighAndLowTimeframeSelection()
+{
+    string globalName = HighAndLowTimeframeGlobalName();
+    if (!GlobalVariableCheck(globalName))
+        return;
+
+    int savedIndex = (int)GlobalVariableGet(globalName);
+    if (savedIndex >= 0 && savedIndex < HLTF_OPTION_COUNT)
+    {
+        g_highAndLowTimeframeIndex = savedIndex;
+        PrintFormat("[HL TF] Restored High/Low timeframe: %s", HighLowTimeframeLabel());
+    }
+}
+
+void SaveHighAndLowTimeframeSelection()
+{
+    GlobalVariableSet(HighAndLowTimeframeGlobalName(), (double)g_highAndLowTimeframeIndex);
+}
+
+//+------------------------------------------------------------------+
+//| Create the HL timeframe button below all existing buttons        |
+//+------------------------------------------------------------------+
+void CreateHighAndLowTimeframeButton()
+{
+    int verticalGap = 4;                        // same spacing as the session buttons
+    bool anchoredToBottom = (InpBtnCorner == CORNER_LEFT_LOWER || InpBtnCorner == CORNER_RIGHT_LOWER);
+
+    if (ObjectFind(0, BTN_HLTF_NAME) < 0)
+        ObjectCreate(0, BTN_HLTF_NAME, OBJ_BUTTON, 0, 0, 0);
+
+    // Reset button + 4 session buttons already occupy slots 0..4 -> this one is slot 5.
+    int offset = 5 * (InpBtnHeight + verticalGap);
+    int yDistance = anchoredToBottom ? (InpBtnY - offset) : (InpBtnY + offset);
+
+    ObjectSetInteger(0, BTN_HLTF_NAME, OBJPROP_CORNER, InpBtnCorner);
+    ObjectSetInteger(0, BTN_HLTF_NAME, OBJPROP_XDISTANCE, InpBtnX);
+    ObjectSetInteger(0, BTN_HLTF_NAME, OBJPROP_YDISTANCE, yDistance);
+    ObjectSetInteger(0, BTN_HLTF_NAME, OBJPROP_XSIZE, InpBtnWidth);
+    ObjectSetInteger(0, BTN_HLTF_NAME, OBJPROP_YSIZE, InpBtnHeight);
+    ObjectSetInteger(0, BTN_HLTF_NAME, OBJPROP_BORDER_COLOR, clrBlack);
+    ObjectSetInteger(0, BTN_HLTF_NAME, OBJPROP_HIDDEN, true);
+    ObjectSetInteger(0, BTN_HLTF_NAME, OBJPROP_SELECTABLE, false);
+
+    RefreshHighAndLowTimeframeButton();
+    ChartRedraw(0);
+}
+
+//+------------------------------------------------------------------+
+//| Keep the button caption in sync with the selected timeframe      |
+//+------------------------------------------------------------------+
+void RefreshHighAndLowTimeframeButton()
+{
+    if (ObjectFind(0, BTN_HLTF_NAME) < 0)
+        return;
+
+    ObjectSetString(0, BTN_HLTF_NAME, OBJPROP_TEXT, "HL TF: " + HighLowTimeframeLabel());
+    ObjectSetInteger(0, BTN_HLTF_NAME, OBJPROP_COLOR, clrWhite);
+    ObjectSetInteger(0, BTN_HLTF_NAME, OBJPROP_BGCOLOR, clrDarkSlateBlue);
+    ObjectSetInteger(0, BTN_HLTF_NAME, OBJPROP_STATE, false);   // never stay visually pressed
+}
+
+//+------------------------------------------------------------------+
+//| Cycle Current -> M1 -> M5 -> M15 -> H1 -> Current                |
+//+------------------------------------------------------------------+
+void CycleHighLowTimeframe()
+{
+    g_highAndLowTimeframeIndex = (g_highAndLowTimeframeIndex + 1) % HLTF_OPTION_COUNT;
+    SaveHighAndLowTimeframeSelection();
+    RefreshHighAndLowTimeframeButton();
+
+    // Touch the new series so the terminal starts loading its history.
+    ENUM_TIMEFRAMES selectedTimeframe = HighLowTimeframe();
+    Bars(_Symbol, selectedTimeframe);
+
+    PrintFormat("[User Action] High/Low timeframe switched to %s via chart button.", HighLowTimeframeLabel());
+
+    RecalculateLevelsForHighAndLowTimeframeChange();
+    ChartRedraw(0);
+}
+
+//+------------------------------------------------------------------+
+//| Recompute High/Low with the new source timeframe.                |
+//| Session trading state (trade counters, locks, halts) is fully    |
+//| preserved: only the High/Low values are refreshed.               |
+//+------------------------------------------------------------------+
+void RecalculateLevelsForHighAndLowTimeframeChange()
+{
+    for (int sessionIndex = 0; sessionIndex < 4; sessionIndex++)
+    {
+        if (!g_sessions[sessionIndex].enable)
+            continue;
+
+        // Snapshot the live trading state so the switch cannot alter it
+        int  savedTradesToday = g_sessions[sessionIndex].tradesToday;
+        bool savedTrade1HitSL = g_sessions[sessionIndex].trade1HitSL;
+        bool savedHaltTrading = g_sessions[sessionIndex].haltTrading;
+        bool savedBuyTriggered = g_sessions[sessionIndex].buyTriggered;
+        bool savedSellTriggered = g_sessions[sessionIndex].sellTriggered;
+
+        g_sessions[sessionIndex].levelsDay = 0;   // force a fresh calculation for today
+        UpdateSessionLevels(sessionIndex);
+
+        g_sessions[sessionIndex].tradesToday = savedTradesToday;
+        g_sessions[sessionIndex].trade1HitSL = savedTrade1HitSL;
+        g_sessions[sessionIndex].haltTrading = savedHaltTrading;
+        g_sessions[sessionIndex].buyTriggered = savedBuyTriggered;
+        g_sessions[sessionIndex].sellTriggered = savedSellTriggered;
+    }
+}
 //+------------------------------------------------------------------+
