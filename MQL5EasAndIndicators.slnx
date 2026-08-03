@@ -31,6 +31,7 @@
     <File Path="Indicator/PinBarTrendSignals.mq5" />
     <File Path="Indicator/QuasimodoRTM.mq5" />
     <File Path="Indicator/Spread.mq5" />
+    <File Path="LiveRR_Monitor.mq5" />
   </Folder>
   <Folder Name="/Solution Items/" />
 </Solution>
