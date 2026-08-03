@@ -76,6 +76,8 @@ input color                  InpS4_Color = clrOrchid;  // Line Color
 
 input group "=== Trade Execution ==="
 input ENUM_ENTRY_MODE        InpEntryMode = ENTRY_MODE_1; // Trade Entry Mode
+input double                 InpRR_Trade1 = 2.0;          // Trade #1 Risk-to-Reward Ratio
+input double                 InpRR_Trade2 = 4.0;          // Trade #2 Risk-to-Reward
 input bool                   InpSkipSecondTradeIfFirstTP = true; // Skip second trade if first reaches TP
 input double                 InpSLBufferPoints = 50.0;       // SL Buffer (points)
 input double                 InpTPBufferPoints = 50.0;       // TP Buffer (points)
@@ -615,7 +617,7 @@ void CheckEntrySignal(int sessionIndex)
         }
     }
 
-    double rewardToRiskRatio = (g_sessions[sessionIndex].tradesToday == 0) ? 2.0 : 4.0;
+    double rewardToRiskRatio = (g_sessions[sessionIndex].tradesToday == 0) ? InpRR_Trade1 : InpRR_Trade2;
 
     if (buySignal)
         ExecuteTrade(ORDER_TYPE_BUY, rewardToRiskRatio, sessionIndex, previousCandleHigh, previousCandleLow);
@@ -796,7 +798,7 @@ void UpdateTradeState()
                 if (!g_sessions[sessionIndex].trade1HitSL)
                 {
                     g_sessions[sessionIndex].trade1HitSL = true;
-                    PrintFormat("Session %d Trade 1 hit SL -> Trade 2 now permitted (RR 1:4).", sessionIndex + 1);
+                    PrintFormat("Session %d Trade 1 hit SL -> Trade 2 now permitted (RR 1:%.1f).", sessionIndex + 1, InpRR_Trade2);
                 }
             }
             else
