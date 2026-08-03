@@ -1194,6 +1194,8 @@ void CreateResetButton()
     ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_STATE, false);
     ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_HIDDEN, true);
     ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_SELECTABLE, false);
+    ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_BACK, false);       // Bring to foreground
+    ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_ZORDER, 10);      // High priority layer
 
     ChartRedraw(0);
 }
@@ -1247,6 +1249,8 @@ void CreateSessionButtons()
         ObjectSetInteger(0, buttonName, OBJPROP_COLOR, clrWhite);
         ObjectSetInteger(0, buttonName, OBJPROP_HIDDEN, true);
         ObjectSetInteger(0, buttonName, OBJPROP_SELECTABLE, false);
+        ObjectSetInteger(0, buttonName, OBJPROP_BACK, false);       // Bring to foreground
+        ObjectSetInteger(0, buttonName, OBJPROP_ZORDER, 10);      // High priority layer
 
         RefreshSessionButton(sessionIndex);
     }
@@ -1801,6 +1805,8 @@ void CreateHighAndLowTimeframeButton()
     ObjectSetInteger(0, BTN_HLTF_NAME, OBJPROP_BORDER_COLOR, clrBlack);
     ObjectSetInteger(0, BTN_HLTF_NAME, OBJPROP_HIDDEN, true);
     ObjectSetInteger(0, BTN_HLTF_NAME, OBJPROP_SELECTABLE, false);
+    ObjectSetInteger(0, BTN_HLTF_NAME, OBJPROP_BACK, false);       // Bring to foreground
+    ObjectSetInteger(0, BTN_HLTF_NAME, OBJPROP_ZORDER, 10);      // High priority layer
 
     RefreshHighAndLowTimeframeButton();
     ChartRedraw(0);
@@ -1893,6 +1899,8 @@ void CreateEditTimeButton()
     ObjectSetInteger(0, BTN_EDIT_TIME_NAME, OBJPROP_BORDER_COLOR, clrBlack);
     ObjectSetInteger(0, BTN_EDIT_TIME_NAME, OBJPROP_HIDDEN, true);
     ObjectSetInteger(0, BTN_EDIT_TIME_NAME, OBJPROP_SELECTABLE, false);
+    ObjectSetInteger(0, BTN_EDIT_TIME_NAME, OBJPROP_BACK, false);       // Bring to foreground
+    ObjectSetInteger(0, BTN_EDIT_TIME_NAME, OBJPROP_ZORDER, 10);      // High priority layer
 
     RefreshEditTimeButton();
     ChartRedraw(0);
