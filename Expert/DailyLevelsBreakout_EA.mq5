@@ -4,7 +4,7 @@
 //|  - 3 level-detection methods                                     |
 //|  - Breakout quality / range / origin entry filters               |
 //|  - 4 Fully Independent Trading Sessions                          |
-//|  - Trade 1 @ RR 1:2, Trade 2 (only after SL) @ RR 1:4 (per sesh) |
+//|  - Trade 1 @ RR 1:2, Trade 2 (only after SL) @ RR 1:2 (per sesh) |
 //|  - Max 2 trades per session, halt after TP or after trade 2      |
 //+------------------------------------------------------------------+
 #property copyright "DailyLevelsBreakout"
@@ -33,6 +33,13 @@ enum ENUM_ENTRY_MODE
     ENTRY_MODE_1 = 1,   // EntryMode = 1 (DMT)
     ENTRY_MODE_2 = 2,   // EntryMode = 2 (Breakout Entry)
     ENTRY_MODE_3 = 3    // EntryMode = 3 (Breakout Entry & Candle Close Confirmation)
+};
+
+//--- Trade 2 Direction Enum
+enum ENUM_TRADE2_DIRECTION
+{
+    TRADE2_OPPOSITE_ONLY = 0,   // Only Opposite Direction (Default)
+    TRADE2_ANY_DIRECTION = 1    // Allow Same Direction
 };
 
 //=== Inputs =========================================================
@@ -76,8 +83,9 @@ input color                  InpS4_Color = clrOrchid;  // Line Color
 
 input group "=== Trade Execution ==="
 input ENUM_ENTRY_MODE        InpEntryMode = ENTRY_MODE_1; // Trade Entry Mode
+input ENUM_TRADE2_DIRECTION  InpTrade2Direction = TRADE2_ANY_DIRECTION; // Trade 2 Direction Rule
 input double                 InpRR_Trade1 = 2.0;          // Trade #1 Risk-to-Reward Ratio
-input double                 InpRR_Trade2 = 4.0;          // Trade #2 Risk-to-Reward
+input double                 InpRR_Trade2 = 2.0;          // Trade #2 Risk-to-Reward
 input bool                   InpSkipSecondTradeIfFirstTP = true; // Skip second trade if first reaches TP
 input double                 InpSLBufferPoints = 50.0;       // SL Buffer (points)
 input double                 InpTPBufferPoints = 50.0;       // TP Buffer (points)
@@ -818,6 +826,14 @@ void UpdateTradeState()
                 {
                     g_sessions[sessionIndex].trade1HitSL = true;
                     PrintFormat("Session %d Trade 1 hit SL -> Trade 2 now permitted (RR 1:%.1f).", sessionIndex + 1, InpRR_Trade2);
+
+                    // Reset Trade Direction Lock ---
+                    if (InpTrade2Direction == TRADE2_ANY_DIRECTION)
+                    {
+                        g_sessions[sessionIndex].buyTriggered = false;
+                        g_sessions[sessionIndex].sellTriggered = false;
+                        PrintFormat("Session %d Direction locks reset for Trade 2 (Same direction allowed).", sessionIndex + 1);
+                    }
                 }
             }
             else
@@ -830,6 +846,14 @@ void UpdateTradeState()
                 else
                 {
                     PrintFormat("Session %d Trade 1 closed (TP/non-SL) -> Trade 2 permitted.", sessionIndex + 1);
+
+                    // Reset Trade Direction Lock for Manually Closed or TP-Closed Trades ---
+                    if (InpTrade2Direction == TRADE2_ANY_DIRECTION)
+                    {
+                        g_sessions[sessionIndex].buyTriggered = false;
+                        g_sessions[sessionIndex].sellTriggered = false;
+                        PrintFormat("Session %d Direction locks reset for Trade 2 (Same direction allowed).", sessionIndex + 1);
+                    }
                 }
             }
         }
