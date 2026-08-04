@@ -115,6 +115,11 @@ datetime  g_lastBarTime = 0;
 datetime  g_lastChartDay = 0;
 const string OBJ_PREFIX = "DLB_";
 
+//--- Global Master Trading Switch & Persistent Storage -------------
+bool          TradingEnabled = true;                            // Master execution toggle flag
+const string  BTN_TRADING_TOGGLE_NAME = OBJ_PREFIX + "TradeToggleBtn";
+const string  GV_TRADING_TOGGLE_PREFIX = "DLB_TradeToggle_";     // Terminal global variable prefix
+
 //--- Session ON/OFF toggle buttons ---------------------------------
 const string BTN_SESSION_PREFIX = OBJ_PREFIX + "SessBtn";
 bool g_sessionButtonState[4] = { true, true, true, true };  // effective session enable flags (button-driven)
@@ -267,6 +272,12 @@ int OnInit()
 
     // Line Time Edit checkbox button
     CreateEditTimeButton();
+
+    // Restore persistent trading master state
+    LoadTradingEnabledState();
+
+    // Create Trading ON/OFF toggle button on chart
+    CreateTradingToggleButton();
 
     for (int sessionIndex = 0; sessionIndex < 4; sessionIndex++)
     {
@@ -632,6 +643,14 @@ void CheckEntrySignal(int sessionIndex)
 //+------------------------------------------------------------------+
 void ExecuteTrade(const ENUM_ORDER_TYPE orderType, const double rewardToRiskRatio, int sessionIndex, double previousCandleHigh = 0.0, double previousCandleLow = 0.0)
 {
+    // --- Master Execution Guard ---
+    if (!TradingEnabled)
+    {
+        PrintFormat("[Trade Guard] Trade signal ignored (Session %d %s) because Trading is turned OFF.",
+            sessionIndex + 1, EnumToString(orderType));
+        return;
+    }
+
     // Market-close protection: hard block (covers any call path)
     if (EnableCloseBeforeMarketClose && g_mcBlockTrading)
     {
@@ -1039,6 +1058,11 @@ void OnChartEvent(const int id,
     // 2. Handle Reset Button Click
     if (id == CHARTEVENT_OBJECT_CLICK)
     {
+        if (sparam == BTN_TRADING_TOGGLE_NAME)
+        {
+            ToggleTradingEnabled();
+        }
+
         if (sparam == BTN_RESET_NAME)
         {
             ResetLevelsToOriginal();
@@ -1916,8 +1940,8 @@ void RefreshEditTimeButton()
     if (ObjectFind(0, BTN_EDIT_TIME_NAME) < 0)
         return;
 
-    string btnText = g_allowLineTimeEdit ? "[x].Edit LineTime" : "[ ].Edit LineTime";
-    ObjectSetString(0, BTN_EDIT_TIME_NAME, OBJPROP_TEXT, btnText);
+    string buttonText = g_allowLineTimeEdit ? "[x].Edit LineTime" : "[ ].Edit LineTime";
+    ObjectSetString(0, BTN_EDIT_TIME_NAME, OBJPROP_TEXT, buttonText);
     ObjectSetInteger(0, BTN_EDIT_TIME_NAME, OBJPROP_BGCOLOR, g_allowLineTimeEdit ? clrDarkOrange : clrSlateGray);
     ObjectSetInteger(0, BTN_EDIT_TIME_NAME, OBJPROP_COLOR, clrWhite);
     ObjectSetInteger(0, BTN_EDIT_TIME_NAME, OBJPROP_STATE, false);
@@ -1934,3 +1958,82 @@ void ToggleEditTime()
     ChartRedraw(0);
 }
 //+------------------------------------------------------------------+
+
+//+------------------------------------------------------------------+
+//| Helper to construct a symbol/timeframe unique persistent key     |
+//+------------------------------------------------------------------+
+string TradingToggleGlobalName()
+{
+    return(GV_TRADING_TOGGLE_PREFIX + _Symbol + "_" + IntegerToString((int)_Period));
+}
+void LoadTradingEnabledState()
+{
+    string globalName = TradingToggleGlobalName();
+    if (GlobalVariableCheck(globalName))
+    {
+        TradingEnabled = (GlobalVariableGet(globalName) > 0.5);
+        PrintFormat("[Trading Switch] Restored persistent state: Trading %s", TradingEnabled ? "ON" : "OFF");
+    }
+}
+
+void SaveTradingEnabledState()
+{
+    GlobalVariableSet(TradingToggleGlobalName(), TradingEnabled ? 1.0 : 0.0);
+}
+//+------------------------------------------------------------------+
+
+//+------------------------------------------------------------------+
+//| Create "Trading ON/OFF" Button below existing control buttons    |
+//+------------------------------------------------------------------+
+void CreateTradingToggleButton()
+{
+    int verticalGap = 4;
+    bool anchoredToBottom = (InpBtnCorner == CORNER_LEFT_LOWER || InpBtnCorner == CORNER_RIGHT_LOWER);
+
+    if (ObjectFind(0, BTN_TRADING_TOGGLE_NAME) < 0)
+        ObjectCreate(0, BTN_TRADING_TOGGLE_NAME, OBJ_BUTTON, 0, 0, 0);
+
+    // Positioned at slot 7 (directly below the Line Time Edit button)
+    int offset = 7 * (InpBtnHeight + verticalGap);
+    int yDistance = anchoredToBottom ? (InpBtnY - offset) : (InpBtnY + offset);
+
+    ObjectSetInteger(0, BTN_TRADING_TOGGLE_NAME, OBJPROP_CORNER, InpBtnCorner);
+    ObjectSetInteger(0, BTN_TRADING_TOGGLE_NAME, OBJPROP_XDISTANCE, InpBtnX);
+    ObjectSetInteger(0, BTN_TRADING_TOGGLE_NAME, OBJPROP_YDISTANCE, yDistance);
+    ObjectSetInteger(0, BTN_TRADING_TOGGLE_NAME, OBJPROP_XSIZE, InpBtnWidth);
+    ObjectSetInteger(0, BTN_TRADING_TOGGLE_NAME, OBJPROP_YSIZE, InpBtnHeight);
+    ObjectSetInteger(0, BTN_TRADING_TOGGLE_NAME, OBJPROP_BORDER_COLOR, clrBlack);
+    ObjectSetInteger(0, BTN_TRADING_TOGGLE_NAME, OBJPROP_HIDDEN, true);
+    ObjectSetInteger(0, BTN_TRADING_TOGGLE_NAME, OBJPROP_SELECTABLE, false);
+    ObjectSetInteger(0, BTN_TRADING_TOGGLE_NAME, OBJPROP_BACK, false);
+    ObjectSetInteger(0, BTN_TRADING_TOGGLE_NAME, OBJPROP_ZORDER, 10);
+
+    RefreshTradingToggleButton();
+    ChartRedraw(0);
+}
+
+//+------------------------------------------------------------------+
+//| Refresh button label and color according to current state       |
+//+------------------------------------------------------------------+
+void RefreshTradingToggleButton()
+{
+    if (ObjectFind(0, BTN_TRADING_TOGGLE_NAME) < 0)
+        return;
+
+    ObjectSetString(0, BTN_TRADING_TOGGLE_NAME, OBJPROP_TEXT, TradingEnabled ? "Trading: ON" : "Trading: OFF");
+    ObjectSetInteger(0, BTN_TRADING_TOGGLE_NAME, OBJPROP_BGCOLOR, TradingEnabled ? clrGreen : clrRed);
+    ObjectSetInteger(0, BTN_TRADING_TOGGLE_NAME, OBJPROP_COLOR, clrWhite);
+    ObjectSetInteger(0, BTN_TRADING_TOGGLE_NAME, OBJPROP_STATE, false);
+}
+
+//+------------------------------------------------------------------+
+//| Toggle Master Trading State                                      |
+//+------------------------------------------------------------------+
+void ToggleTradingEnabled()
+{
+    TradingEnabled = !TradingEnabled;
+    SaveTradingEnabledState();
+    RefreshTradingToggleButton();
+    PrintFormat("[User Action] Master execution state switched to: %s", TradingEnabled ? "ON" : "OFF");
+    ChartRedraw(0);
+}
