@@ -127,6 +127,7 @@ input double                 InpTPBufferPoints = 50.0;       // TP Buffer (point
 input bool                   InpUseRiskPercent = true;       // Use risk % sizing (else fixed lot)
 input double                 InpRiskPercent = 0.2;        // Risk % of balance per trade
 input double                 InpFixedLot = 0.10;       // Fixed lot size
+input double                 InpMaxRiskPoints = 0;        // Max SL risk in points (0 = no limit)
 input ulong                  InpMagic = 20260729;   // Base Magic Number (Sessions use Base + 0,1,2,3)
 input int                    InpSlippagePoints = 20;         // Max slippage (points)
 input int                    InpOpenTolerancePoints = 1; // Open price tolerance in points for EntryMode = 1 (DMT)
@@ -835,6 +836,47 @@ void CheckEntrySignal(int sessionIndex)
 
     double rewardToRiskRatio = (g_sessions[sessionIndex].tradesToday == 0) ? InpRR_Trade1 : InpRR_Trade2;
 
+    // --- Max Risk Points Filter ---
+    if (InpMaxRiskPoints > 0)
+    {
+        MqlTick filterTick;
+        if (SymbolInfoTick(_Symbol, filterTick))
+        {
+            double stopLossDistance = 0.0;
+            double stopLossBuffer = InpSLBufferPoints * _Point;
+
+            if (buySignal)
+            {
+                double entryPrice = filterTick.ask;
+                if (InpEntryMode == ENTRY_MODE_1)
+                    stopLossDistance = entryPrice - (iLow(_Symbol, _Period, 2) - stopLossBuffer);
+                else if (InpEntryMode == ENTRY_MODE_2)
+                    stopLossDistance = entryPrice - (g_sessions[sessionIndex].definedLow - stopLossBuffer);
+                else // ENTRY_MODE_3
+                    stopLossDistance = (previousCandleHigh - previousCandleLow) + stopLossBuffer;
+            }
+            else if (sellSignal)
+            {
+                double entryPrice = filterTick.bid;
+                if (InpEntryMode == ENTRY_MODE_1)
+                    stopLossDistance = (iHigh(_Symbol, _Period, 2) + stopLossBuffer) - entryPrice;
+                else if (InpEntryMode == ENTRY_MODE_2)
+                    stopLossDistance = (g_sessions[sessionIndex].definedHigh + stopLossBuffer) - entryPrice;
+                else // ENTRY_MODE_3
+                    stopLossDistance = (previousCandleHigh - previousCandleLow) + stopLossBuffer;
+            }
+
+            double riskInPoints = stopLossDistance / _Point;
+            if (riskInPoints > InpMaxRiskPoints)
+            {
+                PrintFormat("[MaxRisk] Session %d signal skipped: SL risk %.1f pts exceeds limit %.1f pts.",
+                    sessionIndex + 1, riskInPoints, InpMaxRiskPoints);
+                return;
+            }
+        }
+    }
+    // --- End Max Risk Points Filter ---
+
     if (buySignal)
         ExecuteTrade(ORDER_TYPE_BUY, rewardToRiskRatio, sessionIndex, previousCandleHigh, previousCandleLow);
     else
@@ -1208,6 +1250,7 @@ void DrawSessionLevelLines(int sessionIndex, const datetime startOfDayTime)
     ObjectSetInteger(0, referenceLineName, OBJPROP_WIDTH, 1);
     ObjectSetInteger(0, referenceLineName, OBJPROP_BACK, true);
     ObjectSetInteger(0, referenceLineName, OBJPROP_SELECTABLE, false);
+    ObjectSetInteger(0, referenceLineName, OBJPROP_BACK, true);
     ObjectSetInteger(0, referenceLineName, OBJPROP_ZORDER, 0);
 
     // 2. High Line (Selectable for vertical dragging only)
@@ -1219,6 +1262,7 @@ void DrawSessionLevelLines(int sessionIndex, const datetime startOfDayTime)
     ObjectSetInteger(0, highLineName, OBJPROP_RAY_LEFT, false);
     ObjectSetInteger(0, highLineName, OBJPROP_SELECTABLE, true);
     ObjectSetInteger(0, highLineName, OBJPROP_SELECTED, false);
+    ObjectSetInteger(0, highLineName, OBJPROP_BACK, true);
     ObjectSetInteger(0, highLineName, OBJPROP_ZORDER, 2);
 
     // 3. Low Line (Selectable for vertical dragging only)
@@ -1230,6 +1274,7 @@ void DrawSessionLevelLines(int sessionIndex, const datetime startOfDayTime)
     ObjectSetInteger(0, lowLineName, OBJPROP_RAY_LEFT, false);
     ObjectSetInteger(0, lowLineName, OBJPROP_SELECTABLE, true);
     ObjectSetInteger(0, lowLineName, OBJPROP_SELECTED, false);
+    ObjectSetInteger(0, lowLineName, OBJPROP_BACK, true);
     ObjectSetInteger(0, lowLineName, OBJPROP_ZORDER, 2);
 
     // 4. High Price Label (Above High line, anchored left of Reference Bar)
@@ -1239,6 +1284,7 @@ void DrawSessionLevelLines(int sessionIndex, const datetime startOfDayTime)
     ObjectSetInteger(0, highLabelName, OBJPROP_FONTSIZE, InpPriceLabelFontSize);
     ObjectSetInteger(0, highLabelName, OBJPROP_ANCHOR, ANCHOR_RIGHT_LOWER);
     ObjectSetInteger(0, highLabelName, OBJPROP_SELECTABLE, false);
+    ObjectSetInteger(0, highLabelName, OBJPROP_BACK, true);
     ObjectSetInteger(0, highLabelName, OBJPROP_ZORDER, 2);
 
     // 5. Low Price Label (Below Low line, anchored left of Reference Bar)
@@ -1248,6 +1294,7 @@ void DrawSessionLevelLines(int sessionIndex, const datetime startOfDayTime)
     ObjectSetInteger(0, lowLabelName, OBJPROP_FONTSIZE, InpPriceLabelFontSize);
     ObjectSetInteger(0, lowLabelName, OBJPROP_ANCHOR, ANCHOR_RIGHT_UPPER);
     ObjectSetInteger(0, lowLabelName, OBJPROP_SELECTABLE, false);
+    ObjectSetInteger(0, lowLabelName, OBJPROP_BACK, true);
     ObjectSetInteger(0, lowLabelName, OBJPROP_ZORDER, 2);
 
     ChartRedraw(0);
