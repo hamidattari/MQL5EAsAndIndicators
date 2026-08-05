@@ -34,4 +34,5 @@
     <File Path="LiveRR_Monitor.mq5" />
   </Folder>
   <Folder Name="/Solution Items/" />
+  <Project Path="TradeCopierServer/TradeCopierServer.csproj" />
 </Solution>
