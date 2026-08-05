@@ -16,13 +16,20 @@
 //=== UI Control Panel Configuration Constants =======================
 #define UI_PANEL_BG_NAME         (OBJ_PREFIX + "ControlPanel_BG")
 #define UI_PANEL_TITLE_NAME      (OBJ_PREFIX + "ControlPanel_Title")
+#define UI_PANEL_HDR_LINE_NAME   (OBJ_PREFIX + "ControlPanel_HdrLine")
+#define UI_SEC_LABEL_TRADING     (OBJ_PREFIX + "SecLabel_Trading")
+#define UI_SEC_LABEL_SESSIONS    (OBJ_PREFIX + "SecLabel_Sessions")
+#define UI_SEC_LABEL_LEVELS      (OBJ_PREFIX + "SecLabel_Levels")
+#define UI_SEC_LABEL_TOOLS       (OBJ_PREFIX + "SecLabel_Tools")
 #define UI_FONT_NAME             "Trebuchet MS"
 #define UI_FONT_SIZE             9
 #define UI_FONT_SIZE_TITLE       10
+#define UI_FONT_SIZE_SECTION     8
 
 #define UI_COLOR_PANEL_BG        C'24,28,36'
 #define UI_COLOR_PANEL_BORDER    C'50,56,68'
 #define UI_COLOR_PANEL_TITLE     C'220,225,235'
+#define UI_COLOR_SEC_LABEL       C'100,115,145'
 #define UI_COLOR_TEXT_WHITE      C'255,255,255'
 #define UI_COLOR_TEXT_DIM        C'170,175,185'
 
@@ -36,9 +43,10 @@
 #define UI_COLOR_BTN_EDIT_ACTIVE C'255,152,0'    // Orange
 #define UI_COLOR_BTN_EDIT_OFF    C'55,62,78'     // Muted Dark
 
-#define UI_PADDING_INNER         10
-#define UI_GAP_Y                 6
-#define UI_SECTION_GAP           10
+#define UI_PADDING_INNER         10   // outer padding on all sides of the panel
+#define UI_GAP_Y                 5    // vertical gap between buttons in the same group
+#define UI_SECTION_GAP           12   // extra vertical gap before each section label
+#define UI_SECTION_LABEL_H       14   // height reserved for a section label row
 
 //--- Detection method enum
 enum ENUM_DETECTION_METHOD
@@ -215,81 +223,162 @@ struct SessionData
 SessionData g_sessions[4];
 
 // Dynamic calculation helpers for Control Panel Container positioning
+// Layout order (top-to-bottom inside the panel, after the header):
+//   [Section: Trading]  -> Slot 0 (Trading Toggle)
+//   [Section: Sessions] -> Slots 1..4 (Session 1..4)
+//   [Section: Levels]   -> Slot 5 (Reset), Slot 6 (Timeframe)
+//   [Section: Tools]    -> Slot 7 (Edit LineTime)
+//
+// Each slot's Y is: panelTopY + headerHeight + sum of (sectionLabel + gap + buttons) before it
 int GetButtonYOffset(int slotIndex)
 {
-    int titleHeaderHeight = 24;
-    int y = UI_PADDING_INNER + titleHeaderHeight;
+    // Title header area
+    int titleHeaderHeight = 24;   // title text height
+    int hdrDividerH = 2;    // thin divider line below title
+    int y = UI_PADDING_INNER + titleHeaderHeight + hdrDividerH + 4; // 4px breathing room
 
-    // Group 1: Trading Controls (Slot 0 -> Trading Toggle)
-    if (slotIndex > 0) y += InpBtnHeight + UI_SECTION_GAP;
+    // --- Section: Trading (Slot 0) ---
+    // Section label then slot 0
+    y += UI_SECTION_GAP + UI_SECTION_LABEL_H + UI_GAP_Y; // gap + label + gap to btn
+    if (slotIndex == 0) return y;
+    y += InpBtnHeight;
 
-    // Group 2: Session Controls (Slots 1..4 -> Session 1..4 Buttons)
-    for (int i = 1; i < 5 && i < slotIndex; i++)
+    // --- Section: Sessions (Slots 1..4) ---
+    y += UI_SECTION_GAP + UI_SECTION_LABEL_H + UI_GAP_Y;
+    if (slotIndex == 1) return y;
+    for (int i = 2; i <= 4; i++)
     {
         y += InpBtnHeight + UI_GAP_Y;
+        if (slotIndex == i) return y;
     }
+    y += InpBtnHeight; // finish slot 4
 
-    // Group 3: Level Controls (Slot 5 -> Reset Button)
-    if (slotIndex >= 5)
-    {
-        if (slotIndex > 4) y += UI_SECTION_GAP;
-        if (slotIndex > 5) y += InpBtnHeight + UI_GAP_Y;
-    }
+    // --- Section: Level Controls (Slot 5 = Reset, Slot 6 = Timeframe) ---
+    y += UI_SECTION_GAP + UI_SECTION_LABEL_H + UI_GAP_Y;
+    if (slotIndex == 5) return y;
+    y += InpBtnHeight + UI_GAP_Y;
+    if (slotIndex == 6) return y;
+    y += InpBtnHeight;
 
-    // Group 4: Timeframe & Utility Controls (Slot 6 -> HLTF, Slot 7 -> Edit Time)
-    if (slotIndex >= 6)
-    {
-        if (slotIndex == 6) y += UI_SECTION_GAP;
-        for (int i = 6; i < slotIndex; i++)
-        {
-            y += InpBtnHeight + UI_GAP_Y;
-        }
-    }
-
+    // --- Section: Tools (Slot 7 = Edit LineTime) ---
+    y += UI_SECTION_GAP + UI_SECTION_LABEL_H + UI_GAP_Y;
+    // slotIndex == 7
     return y;
+}
+
+// Returns total panel height based on current button height settings
+int GetPanelTotalHeight()
+{
+    // last slot is 7, plus bottom padding
+    return GetButtonYOffset(7) + InpBtnHeight + UI_PADDING_INNER;
+}
+
+// Create/update a section label object inside the panel
+void CreatePanelSectionLabel(const string labelName, const string text, int yOffset)
+{
+    bool anchoredToBottom = (InpBtnCorner == CORNER_LEFT_LOWER || InpBtnCorner == CORNER_RIGHT_LOWER);
+    int totalH = GetPanelTotalHeight();
+    int yDistance = anchoredToBottom ? (InpBtnY - (totalH - yOffset)) : (InpBtnY + yOffset);
+
+    if (ObjectFind(0, labelName) < 0)
+        ObjectCreate(0, labelName, OBJ_LABEL, 0, 0, 0);
+
+    ObjectSetInteger(0, labelName, OBJPROP_CORNER, InpBtnCorner);
+    ObjectSetInteger(0, labelName, OBJPROP_XDISTANCE, InpBtnX + UI_PADDING_INNER);
+    ObjectSetInteger(0, labelName, OBJPROP_YDISTANCE, yDistance);
+    ObjectSetString(0, labelName, OBJPROP_TEXT, text);
+    ObjectSetString(0, labelName, OBJPROP_FONT, UI_FONT_NAME);
+    ObjectSetInteger(0, labelName, OBJPROP_FONTSIZE, UI_FONT_SIZE_SECTION);
+    ObjectSetInteger(0, labelName, OBJPROP_COLOR, UI_COLOR_SEC_LABEL);
+    ObjectSetInteger(0, labelName, OBJPROP_ANCHOR, ANCHOR_LEFT_UPPER);
+    ObjectSetInteger(0, labelName, OBJPROP_SELECTABLE, false);
+    ObjectSetInteger(0, labelName, OBJPROP_HIDDEN, true);
+    ObjectSetInteger(0, labelName, OBJPROP_BACK, false);
+    ObjectSetInteger(0, labelName, OBJPROP_ZORDER, 5);
+}
+
+// Return the Y offset of the section label above a given first-slot in that section
+int GetSectionLabelY(int firstSlotIndex)
+{
+    // The label sits UI_SECTION_GAP + UI_SECTION_LABEL_H + UI_GAP_Y before the first slot button
+    return GetButtonYOffset(firstSlotIndex) - UI_GAP_Y - UI_SECTION_LABEL_H;
 }
 
 void CreateControlPanelContainer()
 {
-    int totalSlots = 8;
-    int totalInnerHeight = GetButtonYOffset(totalSlots - 1) + InpBtnHeight + UI_PADDING_INNER + 10;
+    int totalH = GetPanelTotalHeight();
     int totalPanelWidth = InpBtnWidth + (UI_PADDING_INNER * 2);
 
     bool anchoredToBottom = (InpBtnCorner == CORNER_LEFT_LOWER || InpBtnCorner == CORNER_RIGHT_LOWER);
-    int panelY = anchoredToBottom ? (InpBtnY - totalInnerHeight) : InpBtnY;
+    // Panel top-left corner Y distance from the anchor corner
+    int panelY = anchoredToBottom ? (InpBtnY - totalH) : InpBtnY;
 
-    // Outer Background Box
+    // --- Outer Background Box ---
     if (ObjectFind(0, UI_PANEL_BG_NAME) < 0)
         ObjectCreate(0, UI_PANEL_BG_NAME, OBJ_RECTANGLE_LABEL, 0, 0, 0);
 
     ObjectSetInteger(0, UI_PANEL_BG_NAME, OBJPROP_CORNER, InpBtnCorner);
-    ObjectSetInteger(0, UI_PANEL_BG_NAME, OBJPROP_XDISTANCE, InpBtnX - UI_PADDING_INNER);
-    ObjectSetInteger(0, UI_PANEL_BG_NAME, OBJPROP_YDISTANCE, panelY - UI_PADDING_INNER);
+    ObjectSetInteger(0, UI_PANEL_BG_NAME, OBJPROP_XDISTANCE, InpBtnX);
+    ObjectSetInteger(0, UI_PANEL_BG_NAME, OBJPROP_YDISTANCE, panelY);
     ObjectSetInteger(0, UI_PANEL_BG_NAME, OBJPROP_XSIZE, totalPanelWidth);
-    ObjectSetInteger(0, UI_PANEL_BG_NAME, OBJPROP_YSIZE, totalInnerHeight);
+    ObjectSetInteger(0, UI_PANEL_BG_NAME, OBJPROP_YSIZE, totalH);
     ObjectSetInteger(0, UI_PANEL_BG_NAME, OBJPROP_BGCOLOR, UI_COLOR_PANEL_BG);
     ObjectSetInteger(0, UI_PANEL_BG_NAME, OBJPROP_BORDER_COLOR, UI_COLOR_PANEL_BORDER);
     ObjectSetInteger(0, UI_PANEL_BG_NAME, OBJPROP_BORDER_TYPE, BORDER_FLAT);
     ObjectSetInteger(0, UI_PANEL_BG_NAME, OBJPROP_WIDTH, 1);
-    ObjectSetInteger(0, UI_PANEL_BG_NAME, OBJPROP_BACK, false);
+    ObjectSetInteger(0, UI_PANEL_BG_NAME, OBJPROP_BACK, false);   // render behind buttons
     ObjectSetInteger(0, UI_PANEL_BG_NAME, OBJPROP_SELECTABLE, false);
     ObjectSetInteger(0, UI_PANEL_BG_NAME, OBJPROP_HIDDEN, true);
     ObjectSetInteger(0, UI_PANEL_BG_NAME, OBJPROP_ZORDER, 1);
 
-    // Header Title Text
+    // --- Header Title Text ---
+    int titleY = anchoredToBottom
+        ? (InpBtnY - totalH + UI_PADDING_INNER)
+        : (InpBtnY + UI_PADDING_INNER);
+
     if (ObjectFind(0, UI_PANEL_TITLE_NAME) < 0)
         ObjectCreate(0, UI_PANEL_TITLE_NAME, OBJ_LABEL, 0, 0, 0);
 
     ObjectSetInteger(0, UI_PANEL_TITLE_NAME, OBJPROP_CORNER, InpBtnCorner);
-    ObjectSetInteger(0, UI_PANEL_TITLE_NAME, OBJPROP_XDISTANCE, InpBtnX);
-    ObjectSetInteger(0, UI_PANEL_TITLE_NAME, OBJPROP_YDISTANCE, panelY);
-    ObjectSetString(0, UI_PANEL_TITLE_NAME, OBJPROP_TEXT, "CONTROL PANEL");
+    ObjectSetInteger(0, UI_PANEL_TITLE_NAME, OBJPROP_XDISTANCE, InpBtnX + UI_PADDING_INNER);
+    ObjectSetInteger(0, UI_PANEL_TITLE_NAME, OBJPROP_YDISTANCE, titleY);
+    ObjectSetString(0, UI_PANEL_TITLE_NAME, OBJPROP_TEXT, "DLB Control Panel");
     ObjectSetString(0, UI_PANEL_TITLE_NAME, OBJPROP_FONT, UI_FONT_NAME);
     ObjectSetInteger(0, UI_PANEL_TITLE_NAME, OBJPROP_FONTSIZE, UI_FONT_SIZE_TITLE);
     ObjectSetInteger(0, UI_PANEL_TITLE_NAME, OBJPROP_COLOR, UI_COLOR_PANEL_TITLE);
+    ObjectSetInteger(0, UI_PANEL_TITLE_NAME, OBJPROP_ANCHOR, ANCHOR_LEFT_UPPER);
     ObjectSetInteger(0, UI_PANEL_TITLE_NAME, OBJPROP_SELECTABLE, false);
     ObjectSetInteger(0, UI_PANEL_TITLE_NAME, OBJPROP_HIDDEN, true);
-    ObjectSetInteger(0, UI_PANEL_TITLE_NAME, OBJPROP_ZORDER, 2);
+    ObjectSetInteger(0, UI_PANEL_TITLE_NAME, OBJPROP_BACK, false);
+    ObjectSetInteger(0, UI_PANEL_TITLE_NAME, OBJPROP_ZORDER, 5);
+
+    // --- Header divider line (thin rectangle under title) ---
+    int titleHeaderHeight = 24;
+    int hdrLineY = anchoredToBottom
+        ? (InpBtnY - totalH + UI_PADDING_INNER + titleHeaderHeight)
+        : (InpBtnY + UI_PADDING_INNER + titleHeaderHeight);
+
+    if (ObjectFind(0, UI_PANEL_HDR_LINE_NAME) < 0)
+        ObjectCreate(0, UI_PANEL_HDR_LINE_NAME, OBJ_RECTANGLE_LABEL, 0, 0, 0);
+
+    ObjectSetInteger(0, UI_PANEL_HDR_LINE_NAME, OBJPROP_CORNER, InpBtnCorner);
+    ObjectSetInteger(0, UI_PANEL_HDR_LINE_NAME, OBJPROP_XDISTANCE, InpBtnX);
+    ObjectSetInteger(0, UI_PANEL_HDR_LINE_NAME, OBJPROP_YDISTANCE, hdrLineY);
+    ObjectSetInteger(0, UI_PANEL_HDR_LINE_NAME, OBJPROP_XSIZE, totalPanelWidth);
+    ObjectSetInteger(0, UI_PANEL_HDR_LINE_NAME, OBJPROP_YSIZE, 2);
+    ObjectSetInteger(0, UI_PANEL_HDR_LINE_NAME, OBJPROP_BGCOLOR, UI_COLOR_PANEL_BORDER);
+    ObjectSetInteger(0, UI_PANEL_HDR_LINE_NAME, OBJPROP_BORDER_TYPE, BORDER_FLAT);
+    ObjectSetInteger(0, UI_PANEL_HDR_LINE_NAME, OBJPROP_COLOR, UI_COLOR_PANEL_BORDER);
+    ObjectSetInteger(0, UI_PANEL_HDR_LINE_NAME, OBJPROP_SELECTABLE, false);
+    ObjectSetInteger(0, UI_PANEL_HDR_LINE_NAME, OBJPROP_HIDDEN, true);
+    ObjectSetInteger(0, UI_PANEL_HDR_LINE_NAME, OBJPROP_BACK, false);
+    ObjectSetInteger(0, UI_PANEL_HDR_LINE_NAME, OBJPROP_ZORDER, 4);
+
+    // --- Section labels ---
+    CreatePanelSectionLabel(UI_SEC_LABEL_TRADING, "TRADING", GetSectionLabelY(0));
+    CreatePanelSectionLabel(UI_SEC_LABEL_SESSIONS, "SESSIONS", GetSectionLabelY(1));
+    CreatePanelSectionLabel(UI_SEC_LABEL_LEVELS, "LEVELS (High & Low)", GetSectionLabelY(5));
+    CreatePanelSectionLabel(UI_SEC_LABEL_TOOLS, "TOOLS", GetSectionLabelY(7));
 }
 
 //+------------------------------------------------------------------+
@@ -611,7 +700,7 @@ void UpdateSessionLevels(int sessionIndex)
     else
         g_sessions[sessionIndex].lineStartTime = iTime(_Symbol, highAndLowTimeframe, referenceCandleShift + InpLookbackN);
 
-    PrintFormat("[%s] Session %d Levels set (Method %d, HL TF: %s): High=%.5f  Low=%.5f",
+    PrintFormat("[%s] Session %d Levels set (Method %d, Timeframe: %s): High=%.5f  Low=%.5f",
         TimeToString(startOfDayTime, TIME_DATE), sessionIndex + 1, (int)InpMethod,
         HighLowTimeframeLabel(), calculatedHigh, calculatedLow);
 
@@ -1119,6 +1208,7 @@ void DrawSessionLevelLines(int sessionIndex, const datetime startOfDayTime)
     ObjectSetInteger(0, referenceLineName, OBJPROP_WIDTH, 1);
     ObjectSetInteger(0, referenceLineName, OBJPROP_BACK, true);
     ObjectSetInteger(0, referenceLineName, OBJPROP_SELECTABLE, false);
+    ObjectSetInteger(0, referenceLineName, OBJPROP_ZORDER, 0);
 
     // 2. High Line (Selectable for vertical dragging only)
     ObjectCreate(0, highLineName, OBJ_TREND, 0, g_sessions[sessionIndex].lineStartTime, g_sessions[sessionIndex].definedHigh, g_sessions[sessionIndex].lineEndTime, g_sessions[sessionIndex].definedHigh);
@@ -1129,6 +1219,7 @@ void DrawSessionLevelLines(int sessionIndex, const datetime startOfDayTime)
     ObjectSetInteger(0, highLineName, OBJPROP_RAY_LEFT, false);
     ObjectSetInteger(0, highLineName, OBJPROP_SELECTABLE, true);
     ObjectSetInteger(0, highLineName, OBJPROP_SELECTED, false);
+    ObjectSetInteger(0, highLineName, OBJPROP_ZORDER, 2);
 
     // 3. Low Line (Selectable for vertical dragging only)
     ObjectCreate(0, lowLineName, OBJ_TREND, 0, g_sessions[sessionIndex].lineStartTime, g_sessions[sessionIndex].definedLow, g_sessions[sessionIndex].lineEndTime, g_sessions[sessionIndex].definedLow);
@@ -1139,6 +1230,7 @@ void DrawSessionLevelLines(int sessionIndex, const datetime startOfDayTime)
     ObjectSetInteger(0, lowLineName, OBJPROP_RAY_LEFT, false);
     ObjectSetInteger(0, lowLineName, OBJPROP_SELECTABLE, true);
     ObjectSetInteger(0, lowLineName, OBJPROP_SELECTED, false);
+    ObjectSetInteger(0, lowLineName, OBJPROP_ZORDER, 2);
 
     // 4. High Price Label (Above High line, anchored left of Reference Bar)
     ObjectCreate(0, highLabelName, OBJ_TEXT, 0, g_sessions[sessionIndex].refBarTime, g_sessions[sessionIndex].definedHigh);
@@ -1147,6 +1239,7 @@ void DrawSessionLevelLines(int sessionIndex, const datetime startOfDayTime)
     ObjectSetInteger(0, highLabelName, OBJPROP_FONTSIZE, InpPriceLabelFontSize);
     ObjectSetInteger(0, highLabelName, OBJPROP_ANCHOR, ANCHOR_RIGHT_LOWER);
     ObjectSetInteger(0, highLabelName, OBJPROP_SELECTABLE, false);
+    ObjectSetInteger(0, highLabelName, OBJPROP_ZORDER, 2);
 
     // 5. Low Price Label (Below Low line, anchored left of Reference Bar)
     ObjectCreate(0, lowLabelName, OBJ_TEXT, 0, g_sessions[sessionIndex].refBarTime, g_sessions[sessionIndex].definedLow);
@@ -1155,6 +1248,7 @@ void DrawSessionLevelLines(int sessionIndex, const datetime startOfDayTime)
     ObjectSetInteger(0, lowLabelName, OBJPROP_FONTSIZE, InpPriceLabelFontSize);
     ObjectSetInteger(0, lowLabelName, OBJPROP_ANCHOR, ANCHOR_RIGHT_UPPER);
     ObjectSetInteger(0, lowLabelName, OBJPROP_SELECTABLE, false);
+    ObjectSetInteger(0, lowLabelName, OBJPROP_ZORDER, 2);
 
     ChartRedraw(0);
 }
@@ -1339,11 +1433,11 @@ void CreateResetButton()
 
     bool anchoredToBottom = (InpBtnCorner == CORNER_LEFT_LOWER || InpBtnCorner == CORNER_RIGHT_LOWER);
     int offset = GetButtonYOffset(5);
-    int yDistance = anchoredToBottom ? (InpBtnY - offset) : (InpBtnY + offset);
+    int yDistance = anchoredToBottom ? (InpBtnY - (GetPanelTotalHeight() - offset)) : (InpBtnY + offset);
 
     // Set user-defined coordinates & size inside panel container
     ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_CORNER, InpBtnCorner);
-    ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_XDISTANCE, InpBtnX);
+    ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_XDISTANCE, InpBtnX + UI_PADDING_INNER);
     ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_YDISTANCE, yDistance);
     ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_XSIZE, InpBtnWidth);
     ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_YSIZE, InpBtnHeight);
@@ -1400,10 +1494,10 @@ void CreateSessionButtons()
 
         // Slots 1 to 4 reserved for Sessions 1..4
         int offset = GetButtonYOffset(sessionIndex + 1);
-        int yDistance = anchoredToBottom ? (InpBtnY - offset) : (InpBtnY + offset);
+        int yDistance = anchoredToBottom ? (InpBtnY - (GetPanelTotalHeight() - offset)) : (InpBtnY + offset);
 
         ObjectSetInteger(0, buttonName, OBJPROP_CORNER, InpBtnCorner);
-        ObjectSetInteger(0, buttonName, OBJPROP_XDISTANCE, InpBtnX);
+        ObjectSetInteger(0, buttonName, OBJPROP_XDISTANCE, InpBtnX + UI_PADDING_INNER);
         ObjectSetInteger(0, buttonName, OBJPROP_YDISTANCE, yDistance);
         ObjectSetInteger(0, buttonName, OBJPROP_XSIZE, InpBtnWidth);
         ObjectSetInteger(0, buttonName, OBJPROP_YSIZE, InpBtnHeight);
@@ -1937,7 +2031,7 @@ void LoadHighAndLowTimeframeSelection()
     if (savedIndex >= 0 && savedIndex < HLTF_OPTION_COUNT)
     {
         g_highAndLowTimeframeIndex = savedIndex;
-        PrintFormat("[HL TF] Restored High/Low timeframe: %s", HighLowTimeframeLabel());
+        PrintFormat("[Timeframe] Restored High/Low timeframe: %s", HighLowTimeframeLabel());
     }
 }
 
@@ -1958,10 +2052,10 @@ void CreateHighAndLowTimeframeButton()
 
     // Slot 6 reserved for High/Low Timeframe button
     int offset = GetButtonYOffset(6);
-    int yDistance = anchoredToBottom ? (InpBtnY - offset) : (InpBtnY + offset);
+    int yDistance = anchoredToBottom ? (InpBtnY - (GetPanelTotalHeight() - offset)) : (InpBtnY + offset);
 
     ObjectSetInteger(0, BTN_HLTF_NAME, OBJPROP_CORNER, InpBtnCorner);
-    ObjectSetInteger(0, BTN_HLTF_NAME, OBJPROP_XDISTANCE, InpBtnX);
+    ObjectSetInteger(0, BTN_HLTF_NAME, OBJPROP_XDISTANCE, InpBtnX + UI_PADDING_INNER);
     ObjectSetInteger(0, BTN_HLTF_NAME, OBJPROP_YDISTANCE, yDistance);
     ObjectSetInteger(0, BTN_HLTF_NAME, OBJPROP_XSIZE, InpBtnWidth);
     ObjectSetInteger(0, BTN_HLTF_NAME, OBJPROP_YSIZE, InpBtnHeight);
@@ -1985,7 +2079,7 @@ void RefreshHighAndLowTimeframeButton()
     if (ObjectFind(0, BTN_HLTF_NAME) < 0)
         return;
 
-    ObjectSetString(0, BTN_HLTF_NAME, OBJPROP_TEXT, "HL TF: " + HighLowTimeframeLabel());
+    ObjectSetString(0, BTN_HLTF_NAME, OBJPROP_TEXT, "Timeframe: " + HighLowTimeframeLabel());
     ObjectSetInteger(0, BTN_HLTF_NAME, OBJPROP_COLOR, UI_COLOR_TEXT_WHITE);
     ObjectSetInteger(0, BTN_HLTF_NAME, OBJPROP_BGCOLOR, UI_COLOR_BTN_HLTF);
     ObjectSetInteger(0, BTN_HLTF_NAME, OBJPROP_STATE, false);   // never stay visually pressed
@@ -2053,10 +2147,10 @@ void CreateEditTimeButton()
 
     // Slot 7 reserved for Line Time Edit button
     int offset = GetButtonYOffset(7);
-    int yDistance = anchoredToBottom ? (InpBtnY - offset) : (InpBtnY + offset);
+    int yDistance = anchoredToBottom ? (InpBtnY - (GetPanelTotalHeight() - offset)) : (InpBtnY + offset);
 
     ObjectSetInteger(0, BTN_EDIT_TIME_NAME, OBJPROP_CORNER, InpBtnCorner);
-    ObjectSetInteger(0, BTN_EDIT_TIME_NAME, OBJPROP_XDISTANCE, InpBtnX);
+    ObjectSetInteger(0, BTN_EDIT_TIME_NAME, OBJPROP_XDISTANCE, InpBtnX + UI_PADDING_INNER);
     ObjectSetInteger(0, BTN_EDIT_TIME_NAME, OBJPROP_YDISTANCE, yDistance);
     ObjectSetInteger(0, BTN_EDIT_TIME_NAME, OBJPROP_XSIZE, InpBtnWidth);
     ObjectSetInteger(0, BTN_EDIT_TIME_NAME, OBJPROP_YSIZE, InpBtnHeight);
@@ -2134,10 +2228,10 @@ void CreateTradingToggleButton()
 
     // Slot 0 reserved for Master Trading Switch at top of control panel
     int offset = GetButtonYOffset(0);
-    int yDistance = anchoredToBottom ? (InpBtnY - offset) : (InpBtnY + offset);
+    int yDistance = anchoredToBottom ? (InpBtnY - (GetPanelTotalHeight() - offset)) : (InpBtnY + offset);
 
     ObjectSetInteger(0, BTN_TRADING_TOGGLE_NAME, OBJPROP_CORNER, InpBtnCorner);
-    ObjectSetInteger(0, BTN_TRADING_TOGGLE_NAME, OBJPROP_XDISTANCE, InpBtnX);
+    ObjectSetInteger(0, BTN_TRADING_TOGGLE_NAME, OBJPROP_XDISTANCE, InpBtnX + UI_PADDING_INNER);
     ObjectSetInteger(0, BTN_TRADING_TOGGLE_NAME, OBJPROP_YDISTANCE, yDistance);
     ObjectSetInteger(0, BTN_TRADING_TOGGLE_NAME, OBJPROP_XSIZE, InpBtnWidth);
     ObjectSetInteger(0, BTN_TRADING_TOGGLE_NAME, OBJPROP_YSIZE, InpBtnHeight);
