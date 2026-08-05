@@ -13,6 +13,33 @@
 
 #include <Trade\Trade.mqh>
 
+//=== UI Control Panel Configuration Constants =======================
+#define UI_PANEL_BG_NAME         (OBJ_PREFIX + "ControlPanel_BG")
+#define UI_PANEL_TITLE_NAME      (OBJ_PREFIX + "ControlPanel_Title")
+#define UI_FONT_NAME             "Trebuchet MS"
+#define UI_FONT_SIZE             9
+#define UI_FONT_SIZE_TITLE       10
+
+#define UI_COLOR_PANEL_BG        C'24,28,36'
+#define UI_COLOR_PANEL_BORDER    C'50,56,68'
+#define UI_COLOR_PANEL_TITLE     C'220,225,235'
+#define UI_COLOR_TEXT_WHITE      C'255,255,255'
+#define UI_COLOR_TEXT_DIM        C'170,175,185'
+
+// Visual States Styling
+#define UI_COLOR_BTN_TRADING_ON  C'38,166,154'   // Modern Green
+#define UI_COLOR_BTN_TRADING_OFF C'239,83,80'    // Modern Red
+#define UI_COLOR_BTN_SESH_ON     C'42,120,210'   // Modern Active Blue
+#define UI_COLOR_BTN_SESH_OFF    C'55,62,78'     // Muted Gray/Dark
+#define UI_COLOR_BTN_RESET       C'90,100,118'   // Slate Neutral
+#define UI_COLOR_BTN_HLTF        C'103,58,183'   // Deep Purple
+#define UI_COLOR_BTN_EDIT_ACTIVE C'255,152,0'    // Orange
+#define UI_COLOR_BTN_EDIT_OFF    C'55,62,78'     // Muted Dark
+
+#define UI_PADDING_INNER         10
+#define UI_GAP_Y                 6
+#define UI_SECTION_GAP           10
+
 //--- Detection method enum
 enum ENUM_DETECTION_METHOD
 {
@@ -110,12 +137,12 @@ input ENUM_LINE_STYLE        InpLineStyle = STYLE_DOT;      // High/Low Line Sty
 input ENUM_LINE_STYLE        InpReferenceLineStyle = STYLE_DOT;      // Reference Time Line Style
 input int                    InpPriceLabelFontSize = 9;              // Price Label Font Size (8-10)
 
-input group "=== Reset Button UI Settings ==="
+input group "=== UI Control Panel Settings ==="
 input ENUM_BASE_CORNER   InpBtnCorner = CORNER_LEFT_UPPER; // Anchor Corner
 input int                InpBtnX = 20;                // X Distance (pixels)
-input int                InpBtnY = 130;               // Y Distance (pixels)
-input int                InpBtnWidth = 120;               // Button Width (pixels)
-input int                InpBtnHeight = 30;                // Button Height (pixels)
+input int                InpBtnY = 30;                // Y Distance (pixels)
+input int                InpBtnWidth = 140;               // Button Width (pixels)
+input int                InpBtnHeight = 28;                // Button Height (pixels)
 
 //=== Structs & Globals =============================================
 CTrade    g_trade;
@@ -187,6 +214,84 @@ struct SessionData
 
 SessionData g_sessions[4];
 
+// Dynamic calculation helpers for Control Panel Container positioning
+int GetButtonYOffset(int slotIndex)
+{
+    int titleHeaderHeight = 24;
+    int y = UI_PADDING_INNER + titleHeaderHeight;
+
+    // Group 1: Trading Controls (Slot 0 -> Trading Toggle)
+    if (slotIndex > 0) y += InpBtnHeight + UI_SECTION_GAP;
+
+    // Group 2: Session Controls (Slots 1..4 -> Session 1..4 Buttons)
+    for (int i = 1; i < 5 && i < slotIndex; i++)
+    {
+        y += InpBtnHeight + UI_GAP_Y;
+    }
+
+    // Group 3: Level Controls (Slot 5 -> Reset Button)
+    if (slotIndex >= 5)
+    {
+        if (slotIndex > 4) y += UI_SECTION_GAP;
+        if (slotIndex > 5) y += InpBtnHeight + UI_GAP_Y;
+    }
+
+    // Group 4: Timeframe & Utility Controls (Slot 6 -> HLTF, Slot 7 -> Edit Time)
+    if (slotIndex >= 6)
+    {
+        if (slotIndex == 6) y += UI_SECTION_GAP;
+        for (int i = 6; i < slotIndex; i++)
+        {
+            y += InpBtnHeight + UI_GAP_Y;
+        }
+    }
+
+    return y;
+}
+
+void CreateControlPanelContainer()
+{
+    int totalSlots = 8;
+    int totalInnerHeight = GetButtonYOffset(totalSlots - 1) + InpBtnHeight + UI_PADDING_INNER + 10;
+    int totalPanelWidth = InpBtnWidth + (UI_PADDING_INNER * 2);
+
+    bool anchoredToBottom = (InpBtnCorner == CORNER_LEFT_LOWER || InpBtnCorner == CORNER_RIGHT_LOWER);
+    int panelY = anchoredToBottom ? (InpBtnY - totalInnerHeight) : InpBtnY;
+
+    // Outer Background Box
+    if (ObjectFind(0, UI_PANEL_BG_NAME) < 0)
+        ObjectCreate(0, UI_PANEL_BG_NAME, OBJ_RECTANGLE_LABEL, 0, 0, 0);
+
+    ObjectSetInteger(0, UI_PANEL_BG_NAME, OBJPROP_CORNER, InpBtnCorner);
+    ObjectSetInteger(0, UI_PANEL_BG_NAME, OBJPROP_XDISTANCE, InpBtnX - UI_PADDING_INNER);
+    ObjectSetInteger(0, UI_PANEL_BG_NAME, OBJPROP_YDISTANCE, panelY - UI_PADDING_INNER);
+    ObjectSetInteger(0, UI_PANEL_BG_NAME, OBJPROP_XSIZE, totalPanelWidth);
+    ObjectSetInteger(0, UI_PANEL_BG_NAME, OBJPROP_YSIZE, totalInnerHeight);
+    ObjectSetInteger(0, UI_PANEL_BG_NAME, OBJPROP_BGCOLOR, UI_COLOR_PANEL_BG);
+    ObjectSetInteger(0, UI_PANEL_BG_NAME, OBJPROP_BORDER_COLOR, UI_COLOR_PANEL_BORDER);
+    ObjectSetInteger(0, UI_PANEL_BG_NAME, OBJPROP_BORDER_TYPE, BORDER_FLAT);
+    ObjectSetInteger(0, UI_PANEL_BG_NAME, OBJPROP_WIDTH, 1);
+    ObjectSetInteger(0, UI_PANEL_BG_NAME, OBJPROP_BACK, false);
+    ObjectSetInteger(0, UI_PANEL_BG_NAME, OBJPROP_SELECTABLE, false);
+    ObjectSetInteger(0, UI_PANEL_BG_NAME, OBJPROP_HIDDEN, true);
+    ObjectSetInteger(0, UI_PANEL_BG_NAME, OBJPROP_ZORDER, 1);
+
+    // Header Title Text
+    if (ObjectFind(0, UI_PANEL_TITLE_NAME) < 0)
+        ObjectCreate(0, UI_PANEL_TITLE_NAME, OBJ_LABEL, 0, 0, 0);
+
+    ObjectSetInteger(0, UI_PANEL_TITLE_NAME, OBJPROP_CORNER, InpBtnCorner);
+    ObjectSetInteger(0, UI_PANEL_TITLE_NAME, OBJPROP_XDISTANCE, InpBtnX);
+    ObjectSetInteger(0, UI_PANEL_TITLE_NAME, OBJPROP_YDISTANCE, panelY);
+    ObjectSetString(0, UI_PANEL_TITLE_NAME, OBJPROP_TEXT, "CONTROL PANEL");
+    ObjectSetString(0, UI_PANEL_TITLE_NAME, OBJPROP_FONT, UI_FONT_NAME);
+    ObjectSetInteger(0, UI_PANEL_TITLE_NAME, OBJPROP_FONTSIZE, UI_FONT_SIZE_TITLE);
+    ObjectSetInteger(0, UI_PANEL_TITLE_NAME, OBJPROP_COLOR, UI_COLOR_PANEL_TITLE);
+    ObjectSetInteger(0, UI_PANEL_TITLE_NAME, OBJPROP_SELECTABLE, false);
+    ObjectSetInteger(0, UI_PANEL_TITLE_NAME, OBJPROP_HIDDEN, true);
+    ObjectSetInteger(0, UI_PANEL_TITLE_NAME, OBJPROP_ZORDER, 2);
+}
+
 //+------------------------------------------------------------------+
 //| Initialization                                                   |
 //+------------------------------------------------------------------+
@@ -232,6 +337,9 @@ int OnInit()
     // --- FIX: Reset global variables memory on Initialization ---
     // This ensures levels force-recalculate when input parameters (like InpLookbackN) change
     ZeroMemory(g_sessions);
+
+    // Create Background Container Box & Title Header
+    CreateControlPanelContainer();
 
     // Create Reset Button on Chart
     CreateResetButton();
@@ -1229,18 +1337,24 @@ void CreateResetButton()
         ObjectCreate(0, BTN_RESET_NAME, OBJ_BUTTON, 0, 0, 0);
     }
 
-    // Set user-defined coordinates & size
+    bool anchoredToBottom = (InpBtnCorner == CORNER_LEFT_LOWER || InpBtnCorner == CORNER_RIGHT_LOWER);
+    int offset = GetButtonYOffset(5);
+    int yDistance = anchoredToBottom ? (InpBtnY - offset) : (InpBtnY + offset);
+
+    // Set user-defined coordinates & size inside panel container
     ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_CORNER, InpBtnCorner);
     ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_XDISTANCE, InpBtnX);
-    ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_YDISTANCE, InpBtnY);
+    ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_YDISTANCE, yDistance);
     ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_XSIZE, InpBtnWidth);
     ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_YSIZE, InpBtnHeight);
 
-    // Styling & Behavior
+    // Modern Styling & Behavior
     ObjectSetString(0, BTN_RESET_NAME, OBJPROP_TEXT, "Reset Levels");
-    ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_COLOR, clrWhite);
-    ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_BGCOLOR, clrSlateGray);
-    ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_BORDER_COLOR, clrBlack);
+    ObjectSetString(0, BTN_RESET_NAME, OBJPROP_FONT, UI_FONT_NAME);
+    ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_FONTSIZE, UI_FONT_SIZE);
+    ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_COLOR, UI_COLOR_TEXT_WHITE);
+    ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_BGCOLOR, UI_COLOR_BTN_RESET);
+    ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_BORDER_COLOR, UI_COLOR_PANEL_BORDER);
     ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_STATE, false);
     ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_HIDDEN, true);
     ObjectSetInteger(0, BTN_RESET_NAME, OBJPROP_SELECTABLE, false);
@@ -1276,7 +1390,6 @@ int SessionIndexFromButton(const string objectName)
 //+------------------------------------------------------------------+
 void CreateSessionButtons()
 {
-    int verticalGap = 4;                       // spacing between buttons (pixels)
     bool anchoredToBottom = (InpBtnCorner == CORNER_LEFT_LOWER || InpBtnCorner == CORNER_RIGHT_LOWER);
 
     for (int sessionIndex = 0; sessionIndex < 4; sessionIndex++)
@@ -1285,9 +1398,8 @@ void CreateSessionButtons()
         if (ObjectFind(0, buttonName) < 0)
             ObjectCreate(0, buttonName, OBJ_BUTTON, 0, 0, 0);
 
-        // Stack the buttons directly below the Reset Levels button.
-        // For bottom-anchored corners, "below" means a smaller Y distance.
-        int offset = (sessionIndex + 1) * (InpBtnHeight + verticalGap);
+        // Slots 1 to 4 reserved for Sessions 1..4
+        int offset = GetButtonYOffset(sessionIndex + 1);
         int yDistance = anchoredToBottom ? (InpBtnY - offset) : (InpBtnY + offset);
 
         ObjectSetInteger(0, buttonName, OBJPROP_CORNER, InpBtnCorner);
@@ -1295,8 +1407,10 @@ void CreateSessionButtons()
         ObjectSetInteger(0, buttonName, OBJPROP_YDISTANCE, yDistance);
         ObjectSetInteger(0, buttonName, OBJPROP_XSIZE, InpBtnWidth);
         ObjectSetInteger(0, buttonName, OBJPROP_YSIZE, InpBtnHeight);
-        ObjectSetInteger(0, buttonName, OBJPROP_BORDER_COLOR, clrBlack);
-        ObjectSetInteger(0, buttonName, OBJPROP_COLOR, clrWhite);
+        ObjectSetString(0, buttonName, OBJPROP_FONT, UI_FONT_NAME);
+        ObjectSetInteger(0, buttonName, OBJPROP_FONTSIZE, UI_FONT_SIZE);
+        ObjectSetInteger(0, buttonName, OBJPROP_BORDER_COLOR, UI_COLOR_PANEL_BORDER);
+        ObjectSetInteger(0, buttonName, OBJPROP_COLOR, UI_COLOR_TEXT_WHITE);
         ObjectSetInteger(0, buttonName, OBJPROP_HIDDEN, true);
         ObjectSetInteger(0, buttonName, OBJPROP_SELECTABLE, false);
         ObjectSetInteger(0, buttonName, OBJPROP_BACK, false);       // Bring to foreground
@@ -1321,8 +1435,8 @@ void RefreshSessionButton(int sessionIndex)
 
     ObjectSetString(0, buttonName, OBJPROP_TEXT,
         "Session " + IntegerToString(sessionIndex + 1) + (isEnabled ? ": ON" : ": OFF"));
-    ObjectSetInteger(0, buttonName, OBJPROP_BGCOLOR, isEnabled ? clrSeaGreen : clrFireBrick);
-    ObjectSetInteger(0, buttonName, OBJPROP_COLOR, clrWhite);
+    ObjectSetInteger(0, buttonName, OBJPROP_BGCOLOR, isEnabled ? UI_COLOR_BTN_SESH_ON : UI_COLOR_BTN_SESH_OFF);
+    ObjectSetInteger(0, buttonName, OBJPROP_COLOR, isEnabled ? UI_COLOR_TEXT_WHITE : UI_COLOR_TEXT_DIM);
     ObjectSetInteger(0, buttonName, OBJPROP_STATE, false);   // never stay visually pressed
 }
 
@@ -1837,14 +1951,13 @@ void SaveHighAndLowTimeframeSelection()
 //+------------------------------------------------------------------+
 void CreateHighAndLowTimeframeButton()
 {
-    int verticalGap = 4;                        // same spacing as the session buttons
     bool anchoredToBottom = (InpBtnCorner == CORNER_LEFT_LOWER || InpBtnCorner == CORNER_RIGHT_LOWER);
 
     if (ObjectFind(0, BTN_HLTF_NAME) < 0)
         ObjectCreate(0, BTN_HLTF_NAME, OBJ_BUTTON, 0, 0, 0);
 
-    // Reset button + 4 session buttons already occupy slots 0..4 -> this one is slot 5.
-    int offset = 5 * (InpBtnHeight + verticalGap);
+    // Slot 6 reserved for High/Low Timeframe button
+    int offset = GetButtonYOffset(6);
     int yDistance = anchoredToBottom ? (InpBtnY - offset) : (InpBtnY + offset);
 
     ObjectSetInteger(0, BTN_HLTF_NAME, OBJPROP_CORNER, InpBtnCorner);
@@ -1852,7 +1965,9 @@ void CreateHighAndLowTimeframeButton()
     ObjectSetInteger(0, BTN_HLTF_NAME, OBJPROP_YDISTANCE, yDistance);
     ObjectSetInteger(0, BTN_HLTF_NAME, OBJPROP_XSIZE, InpBtnWidth);
     ObjectSetInteger(0, BTN_HLTF_NAME, OBJPROP_YSIZE, InpBtnHeight);
-    ObjectSetInteger(0, BTN_HLTF_NAME, OBJPROP_BORDER_COLOR, clrBlack);
+    ObjectSetString(0, BTN_HLTF_NAME, OBJPROP_FONT, UI_FONT_NAME);
+    ObjectSetInteger(0, BTN_HLTF_NAME, OBJPROP_FONTSIZE, UI_FONT_SIZE);
+    ObjectSetInteger(0, BTN_HLTF_NAME, OBJPROP_BORDER_COLOR, UI_COLOR_PANEL_BORDER);
     ObjectSetInteger(0, BTN_HLTF_NAME, OBJPROP_HIDDEN, true);
     ObjectSetInteger(0, BTN_HLTF_NAME, OBJPROP_SELECTABLE, false);
     ObjectSetInteger(0, BTN_HLTF_NAME, OBJPROP_BACK, false);       // Bring to foreground
@@ -1871,8 +1986,8 @@ void RefreshHighAndLowTimeframeButton()
         return;
 
     ObjectSetString(0, BTN_HLTF_NAME, OBJPROP_TEXT, "HL TF: " + HighLowTimeframeLabel());
-    ObjectSetInteger(0, BTN_HLTF_NAME, OBJPROP_COLOR, clrWhite);
-    ObjectSetInteger(0, BTN_HLTF_NAME, OBJPROP_BGCOLOR, clrDarkSlateBlue);
+    ObjectSetInteger(0, BTN_HLTF_NAME, OBJPROP_COLOR, UI_COLOR_TEXT_WHITE);
+    ObjectSetInteger(0, BTN_HLTF_NAME, OBJPROP_BGCOLOR, UI_COLOR_BTN_HLTF);
     ObjectSetInteger(0, BTN_HLTF_NAME, OBJPROP_STATE, false);   // never stay visually pressed
 }
 
@@ -1931,14 +2046,13 @@ void RecalculateLevelsForHighAndLowTimeframeChange()
 //+------------------------------------------------------------------+
 void CreateEditTimeButton()
 {
-    int verticalGap = 4;
     bool anchoredToBottom = (InpBtnCorner == CORNER_LEFT_LOWER || InpBtnCorner == CORNER_RIGHT_LOWER);
 
     if (ObjectFind(0, BTN_EDIT_TIME_NAME) < 0)
         ObjectCreate(0, BTN_EDIT_TIME_NAME, OBJ_BUTTON, 0, 0, 0);
 
-    // Positioned at slot 6 (below High/Low TF button)
-    int offset = 6 * (InpBtnHeight + verticalGap);
+    // Slot 7 reserved for Line Time Edit button
+    int offset = GetButtonYOffset(7);
     int yDistance = anchoredToBottom ? (InpBtnY - offset) : (InpBtnY + offset);
 
     ObjectSetInteger(0, BTN_EDIT_TIME_NAME, OBJPROP_CORNER, InpBtnCorner);
@@ -1946,7 +2060,9 @@ void CreateEditTimeButton()
     ObjectSetInteger(0, BTN_EDIT_TIME_NAME, OBJPROP_YDISTANCE, yDistance);
     ObjectSetInteger(0, BTN_EDIT_TIME_NAME, OBJPROP_XSIZE, InpBtnWidth);
     ObjectSetInteger(0, BTN_EDIT_TIME_NAME, OBJPROP_YSIZE, InpBtnHeight);
-    ObjectSetInteger(0, BTN_EDIT_TIME_NAME, OBJPROP_BORDER_COLOR, clrBlack);
+    ObjectSetString(0, BTN_EDIT_TIME_NAME, OBJPROP_FONT, UI_FONT_NAME);
+    ObjectSetInteger(0, BTN_EDIT_TIME_NAME, OBJPROP_FONTSIZE, UI_FONT_SIZE);
+    ObjectSetInteger(0, BTN_EDIT_TIME_NAME, OBJPROP_BORDER_COLOR, UI_COLOR_PANEL_BORDER);
     ObjectSetInteger(0, BTN_EDIT_TIME_NAME, OBJPROP_HIDDEN, true);
     ObjectSetInteger(0, BTN_EDIT_TIME_NAME, OBJPROP_SELECTABLE, false);
     ObjectSetInteger(0, BTN_EDIT_TIME_NAME, OBJPROP_BACK, false);       // Bring to foreground
@@ -1964,10 +2080,10 @@ void RefreshEditTimeButton()
     if (ObjectFind(0, BTN_EDIT_TIME_NAME) < 0)
         return;
 
-    string buttonText = g_allowLineTimeEdit ? "[x].Edit LineTime" : "[ ].Edit LineTime";
+    string buttonText = g_allowLineTimeEdit ? "[x] Edit LineTime" : "[ ] Edit LineTime";
     ObjectSetString(0, BTN_EDIT_TIME_NAME, OBJPROP_TEXT, buttonText);
-    ObjectSetInteger(0, BTN_EDIT_TIME_NAME, OBJPROP_BGCOLOR, g_allowLineTimeEdit ? clrDarkOrange : clrSlateGray);
-    ObjectSetInteger(0, BTN_EDIT_TIME_NAME, OBJPROP_COLOR, clrWhite);
+    ObjectSetInteger(0, BTN_EDIT_TIME_NAME, OBJPROP_BGCOLOR, g_allowLineTimeEdit ? UI_COLOR_BTN_EDIT_ACTIVE : UI_COLOR_BTN_EDIT_OFF);
+    ObjectSetInteger(0, BTN_EDIT_TIME_NAME, OBJPROP_COLOR, g_allowLineTimeEdit ? UI_COLOR_TEXT_WHITE : UI_COLOR_TEXT_DIM);
     ObjectSetInteger(0, BTN_EDIT_TIME_NAME, OBJPROP_STATE, false);
 }
 
@@ -2007,18 +2123,17 @@ void SaveTradingEnabledState()
 //+------------------------------------------------------------------+
 
 //+------------------------------------------------------------------+
-//| Create "Trading ON/OFF" Button below existing control buttons    |
+//| Create "Trading ON/OFF" Button inside Control Panel              |
 //+------------------------------------------------------------------+
 void CreateTradingToggleButton()
 {
-    int verticalGap = 4;
     bool anchoredToBottom = (InpBtnCorner == CORNER_LEFT_LOWER || InpBtnCorner == CORNER_RIGHT_LOWER);
 
     if (ObjectFind(0, BTN_TRADING_TOGGLE_NAME) < 0)
         ObjectCreate(0, BTN_TRADING_TOGGLE_NAME, OBJ_BUTTON, 0, 0, 0);
 
-    // Positioned at slot 7 (directly below the Line Time Edit button)
-    int offset = 7 * (InpBtnHeight + verticalGap);
+    // Slot 0 reserved for Master Trading Switch at top of control panel
+    int offset = GetButtonYOffset(0);
     int yDistance = anchoredToBottom ? (InpBtnY - offset) : (InpBtnY + offset);
 
     ObjectSetInteger(0, BTN_TRADING_TOGGLE_NAME, OBJPROP_CORNER, InpBtnCorner);
@@ -2026,7 +2141,9 @@ void CreateTradingToggleButton()
     ObjectSetInteger(0, BTN_TRADING_TOGGLE_NAME, OBJPROP_YDISTANCE, yDistance);
     ObjectSetInteger(0, BTN_TRADING_TOGGLE_NAME, OBJPROP_XSIZE, InpBtnWidth);
     ObjectSetInteger(0, BTN_TRADING_TOGGLE_NAME, OBJPROP_YSIZE, InpBtnHeight);
-    ObjectSetInteger(0, BTN_TRADING_TOGGLE_NAME, OBJPROP_BORDER_COLOR, clrBlack);
+    ObjectSetString(0, BTN_TRADING_TOGGLE_NAME, OBJPROP_FONT, UI_FONT_NAME);
+    ObjectSetInteger(0, BTN_TRADING_TOGGLE_NAME, OBJPROP_FONTSIZE, UI_FONT_SIZE);
+    ObjectSetInteger(0, BTN_TRADING_TOGGLE_NAME, OBJPROP_BORDER_COLOR, UI_COLOR_PANEL_BORDER);
     ObjectSetInteger(0, BTN_TRADING_TOGGLE_NAME, OBJPROP_HIDDEN, true);
     ObjectSetInteger(0, BTN_TRADING_TOGGLE_NAME, OBJPROP_SELECTABLE, false);
     ObjectSetInteger(0, BTN_TRADING_TOGGLE_NAME, OBJPROP_BACK, false);
@@ -2045,8 +2162,8 @@ void RefreshTradingToggleButton()
         return;
 
     ObjectSetString(0, BTN_TRADING_TOGGLE_NAME, OBJPROP_TEXT, TradingEnabled ? "Trading: ON" : "Trading: OFF");
-    ObjectSetInteger(0, BTN_TRADING_TOGGLE_NAME, OBJPROP_BGCOLOR, TradingEnabled ? clrGreen : clrRed);
-    ObjectSetInteger(0, BTN_TRADING_TOGGLE_NAME, OBJPROP_COLOR, clrWhite);
+    ObjectSetInteger(0, BTN_TRADING_TOGGLE_NAME, OBJPROP_BGCOLOR, TradingEnabled ? UI_COLOR_BTN_TRADING_ON : UI_COLOR_BTN_TRADING_OFF);
+    ObjectSetInteger(0, BTN_TRADING_TOGGLE_NAME, OBJPROP_COLOR, UI_COLOR_TEXT_WHITE);
     ObjectSetInteger(0, BTN_TRADING_TOGGLE_NAME, OBJPROP_STATE, false);
 }
 
