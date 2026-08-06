@@ -127,7 +127,8 @@ input double                 InpTPBufferPoints = 50.0;       // TP Buffer (point
 input bool                   InpUseRiskPercent = true;       // Use risk % sizing (else fixed lot)
 input double                 InpRiskPercent = 0.2;        // Risk % of balance per trade
 input double                 InpFixedLot = 0.10;       // Fixed lot size
-input double                 InpMaxRiskPoints = 0;        // Max SL risk in points (0 = no limit)
+input int                    InpMaxRiskPoints = 0;        // Max SL risk in points (0 = no limit)
+input double                 InpMaxRiskRR = 1.0;          // R:R override when SL risk exceeds max points (0 skip trade)
 input ulong                  InpMagic = 20260729;   // Base Magic Number (Sessions use Base + 0,1,2,3)
 input int                    InpSlippagePoints = 20;         // Max slippage (points)
 input int                    InpOpenTolerancePoints = 1; // Open price tolerance in points for EntryMode = 1 (DMT)
@@ -869,9 +870,16 @@ void CheckEntrySignal(int sessionIndex)
             double riskInPoints = stopLossDistance / _Point;
             if (riskInPoints > InpMaxRiskPoints)
             {
-                PrintFormat("[MaxRisk] Session %d signal skipped: SL risk %.1f pts exceeds limit %.1f pts.",
-                    sessionIndex + 1, riskInPoints, InpMaxRiskPoints);
-                return;
+                if (InpMaxRiskRR == 0)
+                {
+                    PrintFormat("[MaxRisk] Session %d signal skipped: SL risk %.1f pts exceeds limit %.1f pts.",
+                        sessionIndex + 1, riskInPoints, InpMaxRiskPoints);
+                    return;
+                }
+
+                PrintFormat("[MaxRisk] Session %d: SL risk %.1f pts exceeds limit %.1f pts — R:R overridden to 1:%.1f.",
+                    sessionIndex + 1, riskInPoints, InpMaxRiskPoints, InpMaxRiskRR);
+                rewardToRiskRatio = InpMaxRiskRR;
             }
         }
     }
