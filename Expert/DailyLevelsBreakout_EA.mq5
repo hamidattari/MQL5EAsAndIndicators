@@ -127,8 +127,10 @@ input double                 InpTPBufferPoints = 50.0;       // TP Buffer (point
 input bool                   InpUseRiskPercent = true;       // Use risk % sizing (else fixed lot)
 input double                 InpRiskPercent = 0.2;        // Risk % of balance per trade
 input double                 InpFixedLot = 0.10;       // Fixed lot size
-input int                    InpMaxRiskPoints = 0;        // Max SL risk in points (0 = no limit)
-input double                 InpMaxRiskRR = 1.0;          // R:R override when SL risk exceeds max points (0 skip trade)
+input int                    InpMaxRiskPoints_L1 = 1200;  // [Level 1] Max SL risk in points (0 = disabled)
+input double                 InpMaxRiskRR_L1 = 1.0;       // [Level 1] R:R override when SL exceeds L1 points (0 = skip trade)
+input int                    InpMaxRiskPoints_L2 = 2000;  // [Level 2] Max SL risk in points (0 = disabled)
+input double                 InpMaxRiskRR_L2 = 0.0;       // [Level 2] R:R override when SL exceeds L2 points (0 = skip trade)
 input ulong                  InpMagic = 20260729;   // Base Magic Number (Sessions use Base + 0,1,2,3)
 input int                    InpSlippagePoints = 20;         // Max slippage (points)
 input int                    InpOpenTolerancePoints = 1; // Open price tolerance in points for EntryMode = 1 (DMT)
@@ -837,8 +839,8 @@ void CheckEntrySignal(int sessionIndex)
 
     double rewardToRiskRatio = (g_sessions[sessionIndex].tradesToday == 0) ? InpRR_Trade1 : InpRR_Trade2;
 
-    // --- Max Risk Points Filter ---
-    if (InpMaxRiskPoints > 0)
+    // --- Max Risk Points Filter (2 Levels) ---
+    if (InpMaxRiskPoints_L1 > 0 || InpMaxRiskPoints_L2 > 0)
     {
         MqlTick filterTick;
         if (SymbolInfoTick(_Symbol, filterTick))
@@ -868,18 +870,32 @@ void CheckEntrySignal(int sessionIndex)
             }
 
             double riskInPoints = stopLossDistance / _Point;
-            if (riskInPoints > InpMaxRiskPoints)
+
+            // Level 2 check (highest threshold — most restrictive)
+            if (InpMaxRiskPoints_L2 > 0 && riskInPoints > InpMaxRiskPoints_L2)
             {
-                if (InpMaxRiskRR == 0)
+                if (InpMaxRiskRR_L2 == 0)
                 {
-                    PrintFormat("[MaxRisk] Session %d signal skipped: SL risk %.1f pts exceeds limit %.1f pts.",
-                        sessionIndex + 1, riskInPoints, InpMaxRiskPoints);
+                    PrintFormat("[MaxRisk L2] Session %d signal skipped: SL risk %.1f pts exceeds L2 limit %d pts.",
+                        sessionIndex + 1, riskInPoints, InpMaxRiskPoints_L2);
                     return;
                 }
-
-                PrintFormat("[MaxRisk] Session %d: SL risk %.1f pts exceeds limit %.1f pts — R:R overridden to 1:%.1f.",
-                    sessionIndex + 1, riskInPoints, InpMaxRiskPoints, InpMaxRiskRR);
-                rewardToRiskRatio = InpMaxRiskRR;
+                PrintFormat("[MaxRisk L2] Session %d: SL risk %.1f pts exceeds L2 limit %d pts — R:R overridden to 1:%.1f.",
+                    sessionIndex + 1, riskInPoints, InpMaxRiskPoints_L2, InpMaxRiskRR_L2);
+                rewardToRiskRatio = InpMaxRiskRR_L2;
+            }
+            // Level 1 check (lower threshold)
+            else if (InpMaxRiskPoints_L1 > 0 && riskInPoints > InpMaxRiskPoints_L1)
+            {
+                if (InpMaxRiskRR_L1 == 0)
+                {
+                    PrintFormat("[MaxRisk L1] Session %d signal skipped: SL risk %.1f pts exceeds L1 limit %d pts.",
+                        sessionIndex + 1, riskInPoints, InpMaxRiskPoints_L1);
+                    return;
+                }
+                PrintFormat("[MaxRisk L1] Session %d: SL risk %.1f pts exceeds L1 limit %d pts — R:R overridden to 1:%.1f.",
+                    sessionIndex + 1, riskInPoints, InpMaxRiskPoints_L1, InpMaxRiskRR_L1);
+                rewardToRiskRatio = InpMaxRiskRR_L1;
             }
         }
     }
