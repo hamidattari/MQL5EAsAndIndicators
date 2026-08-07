@@ -4,6 +4,7 @@
     <File Path="Expert/PositionSizerTool/PST_ChartObjects.mqh" />
     <File Path="Expert/PositionSizerTool/PST_PositionTool.mqh" />
     <File Path="Expert/PositionSizerTool/PST_RiskCalculator.mqh" />
+    <File Path="TelegramCopier.mq5" />
   </Folder>
   <Folder Name="/Expert/">
     <File Path="DailyLevelsBreakout_EA_Architecture.md" />
